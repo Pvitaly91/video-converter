@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{8377354D-1DC4-40BD-80D4-E94FB7F22E5D}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{5D18612B-78BB-4465-B0C9-459EDC988D3B}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{1C825343-33A6-4EF7-9FA6-EDDB6EE7FE92}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav</Extensions>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\GuiState.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\main.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\MainWindow.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\OutputPathBuilder.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\ProcessRunner.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\SegmentEditor.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\TimeParser.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\VideoDurationProbe.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\VideoSegmentExporter.cpp"><Filter>Source Files</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\GuiState.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\MainWindow.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\OutputPathBuilder.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\ProcessRunner.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\Resource.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\SegmentEditor.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\TimeParser.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\VideoDurationProbe.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\VideoSegmentExporter.h"><Filter>Header Files</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="src\app.rc"><Filter>Resource Files</Filter></ResourceCompile>
+  </ItemGroup>
+</Project>

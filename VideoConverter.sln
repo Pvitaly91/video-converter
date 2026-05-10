@@ -6,6 +6,8 @@ Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "VideoOptimizer", "VideoOpti
 EndProject
 Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "VideoOptimizerGui", "VideoOptimizerGui\VideoOptimizerGui.vcxproj", "{9B5C9F88-5A3E-4AB1-A0DB-2A51F0146EB2}"
 EndProject
+Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "VideoCutterGui", "VideoCutterGui\VideoCutterGui.vcxproj", "{D8AAB03D-EBBC-456D-8EEE-3BE852AD087A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -20,6 +22,10 @@ Global
 		{9B5C9F88-5A3E-4AB1-A0DB-2A51F0146EB2}.Debug|x64.Build.0 = Debug|x64
 		{9B5C9F88-5A3E-4AB1-A0DB-2A51F0146EB2}.Release|x64.ActiveCfg = Release|x64
 		{9B5C9F88-5A3E-4AB1-A0DB-2A51F0146EB2}.Release|x64.Build.0 = Release|x64
+		{D8AAB03D-EBBC-456D-8EEE-3BE852AD087A}.Debug|x64.ActiveCfg = Debug|x64
+		{D8AAB03D-EBBC-456D-8EEE-3BE852AD087A}.Debug|x64.Build.0 = Debug|x64
+		{D8AAB03D-EBBC-456D-8EEE-3BE852AD087A}.Release|x64.ActiveCfg = Release|x64
+		{D8AAB03D-EBBC-456D-8EEE-3BE852AD087A}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
