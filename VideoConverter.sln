@@ -4,6 +4,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "VideoOptimizer", "VideoOptimizer\VideoOptimizer.vcxproj", "{F8E1C2A4-2C22-46A4-AF26-7D40A5C1A08A}"
 EndProject
+Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "VideoOptimizerGui", "VideoOptimizerGui\VideoOptimizerGui.vcxproj", "{9B5C9F88-5A3E-4AB1-A0DB-2A51F0146EB2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -14,6 +16,10 @@ Global
 		{F8E1C2A4-2C22-46A4-AF26-7D40A5C1A08A}.Debug|x64.Build.0 = Debug|x64
 		{F8E1C2A4-2C22-46A4-AF26-7D40A5C1A08A}.Release|x64.ActiveCfg = Release|x64
 		{F8E1C2A4-2C22-46A4-AF26-7D40A5C1A08A}.Release|x64.Build.0 = Release|x64
+		{9B5C9F88-5A3E-4AB1-A0DB-2A51F0146EB2}.Debug|x64.ActiveCfg = Debug|x64
+		{9B5C9F88-5A3E-4AB1-A0DB-2A51F0146EB2}.Debug|x64.Build.0 = Debug|x64
+		{9B5C9F88-5A3E-4AB1-A0DB-2A51F0146EB2}.Release|x64.ActiveCfg = Release|x64
+		{9B5C9F88-5A3E-4AB1-A0DB-2A51F0146EB2}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

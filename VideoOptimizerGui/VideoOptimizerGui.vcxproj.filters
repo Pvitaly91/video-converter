@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{C1B4D2BE-0451-431D-9B4D-9A0B03A6546A}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{6E9474B0-18DA-40E9-A0E7-63E7B4016578}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx</Extensions>
+    </Filter>
+    <Filter Include="Shared Source">
+      <UniqueIdentifier>{3C316DA0-9740-4046-9D00-5A064F75C4B1}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\VideoOptimizer\src\ConcatListWriter.cpp">
+      <Filter>Shared Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\VideoOptimizer\src\FFmpegRunner.cpp">
+      <Filter>Shared Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\VideoOptimizer\src\Segment.cpp">
+      <Filter>Shared Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\VideoOptimizer\src\SegmentParser.cpp">
+      <Filter>Shared Source</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\VideoOptimizer\src\ConcatListWriter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\VideoOptimizer\src\FFmpegRunner.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\VideoOptimizer\src\Segment.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\VideoOptimizer\src\SegmentParser.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

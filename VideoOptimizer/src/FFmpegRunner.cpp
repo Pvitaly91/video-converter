@@ -248,6 +248,11 @@ std::wstring FFmpegRunner::BuildFFmpegCommand(const std::vector<std::wstring>& a
     return BuildCommandLine(executable, arguments);
 }
 
+std::wstring FFmpegRunner::BuildFFprobeCommand(const std::vector<std::wstring>& arguments) const {
+    const std::filesystem::path executable = ffprobePath_.empty() ? std::filesystem::path(L"ffprobe.exe") : ffprobePath_;
+    return BuildCommandLine(executable, arguments);
+}
+
 ProcessResult FFmpegRunner::RunFFprobe(const std::filesystem::path& input) const {
     std::vector<std::wstring> arguments;
     arguments.push_back(L"-v");
@@ -260,6 +265,10 @@ ProcessResult FFmpegRunner::RunFFprobe(const std::filesystem::path& input) const
     arguments.push_back(L"default=noprint_wrappers=1");
     arguments.push_back(input.wstring());
 
+    return RunProcess(ffprobePath_, arguments);
+}
+
+ProcessResult FFmpegRunner::RunFFprobe(const std::vector<std::wstring>& arguments) const {
     return RunProcess(ffprobePath_, arguments);
 }
 

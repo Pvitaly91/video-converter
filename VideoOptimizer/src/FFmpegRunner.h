@@ -28,8 +28,10 @@ public:
                                     const std::filesystem::path& output,
                                     const Config& config) const;
     std::wstring BuildFFmpegCommand(const std::vector<std::wstring>& arguments) const;
+    std::wstring BuildFFprobeCommand(const std::vector<std::wstring>& arguments) const;
 
     ProcessResult RunFFprobe(const std::filesystem::path& input) const;
+    ProcessResult RunFFprobe(const std::vector<std::wstring>& arguments) const;
     ProcessResult RunFFmpeg(const std::filesystem::path& input,
                             const std::filesystem::path& output,
                             const Config& config) const;
