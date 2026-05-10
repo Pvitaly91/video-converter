@@ -1,0 +1,11 @@
+.vs/
+bin/
+obj/
+x64/
+Debug/
+Release/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+_optimized_mp4/
