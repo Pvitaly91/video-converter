@@ -7,6 +7,7 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <Windowsx.h>
 #include <CommCtrl.h>
 #include <ShlObj.h>
 
@@ -40,9 +41,7 @@ constexpr int kPreviewMargin = 16;
 constexpr int kPreviewMinWidth = 180;
 constexpr int kPreviewMinHeight = 112;
 constexpr int kPreviewTop = 170;
-constexpr int kPreviewScaleMin = 50;
-constexpr int kPreviewScaleMax = 100;
-constexpr int kPreviewScaleDefault = 100;
+constexpr int kPreviewResizeGripHeight = 12;
 
 enum ControlId {
     IdInputEdit = 1001,
@@ -74,7 +73,6 @@ enum ControlId {
     IdKeepTemp,
     IdDryRun,
     IdFullscreen,
-    IdPreviewScale,
     IdRun,
     IdLog
 };
@@ -101,8 +99,6 @@ struct AppState {
     HWND keepTempCheck = nullptr;
     HWND dryRunCheck = nullptr;
     HWND fullscreenButton = nullptr;
-    HWND previewScaleSlider = nullptr;
-    HWND previewScaleText = nullptr;
     HWND runButton = nullptr;
     HWND logEdit = nullptr;
     HFONT font = nullptr;
@@ -121,9 +117,13 @@ struct AppState {
     bool previewLayoutDirty = false;
     DWORD windowedStyle = 0;
     WINDOWPLACEMENT windowedPlacement{ sizeof(WINDOWPLACEMENT) };
+    RECT previewResizeGrip{};
     int previewWidth = 0;
     int previewHeight = 0;
-    int previewScalePercent = kPreviewScaleDefault;
+    int previewPreferredHeight = 0;
+    bool resizingPreview = false;
+    int previewDragStartY = 0;
+    int previewDragStartHeight = 0;
     int lastStartPreviewSecond = -1;
     int lastEndPreviewSecond = -1;
 };
@@ -390,15 +390,6 @@ void EnableTimeSliders(bool enabled) {
     EnableWindow(GetDlgItem(g_app.window, IdEndMinus1), enabled);
     EnableWindow(GetDlgItem(g_app.window, IdEndPlus1), enabled);
     EnableWindow(GetDlgItem(g_app.window, IdEndPlus10), enabled);
-}
-
-void ConfigurePreviewScaleSlider() {
-    SendMessageW(g_app.previewScaleSlider, TBM_SETRANGE, TRUE, MAKELPARAM(kPreviewScaleMin, kPreviewScaleMax));
-    SendMessageW(g_app.previewScaleSlider, TBM_SETPAGESIZE, 0, 10);
-    SendMessageW(g_app.previewScaleSlider, TBM_SETTICFREQ, 10, 0);
-    SendMessageW(g_app.previewScaleSlider, TBM_SETPOS, TRUE, kPreviewScaleDefault);
-    g_app.previewScalePercent = kPreviewScaleDefault;
-    SetWindowString(g_app.previewScaleText, std::to_wstring(g_app.previewScalePercent) + L"%");
 }
 
 void ResetTimeSliders() {
@@ -1064,19 +1055,51 @@ void RefreshPreviewsAfterLayout() {
     UpdatePreviewForSlider(g_app.endSlider, true);
 }
 
+bool IsEmptyRect(const RECT& rect) {
+    return rect.left == rect.right || rect.top == rect.bottom;
+}
+
+bool PointInPreviewResizeGrip(POINT point) {
+    return !IsEmptyRect(g_app.previewResizeGrip) && PtInRect(&g_app.previewResizeGrip, point) != 0;
+}
+
+void DrawPreviewResizeGrip(HDC dc) {
+    if (IsEmptyRect(g_app.previewResizeGrip)) {
+        return;
+    }
+
+    RECT grip = g_app.previewResizeGrip;
+    FillRect(dc, &grip, GetSysColorBrush(COLOR_3DFACE));
+
+    const int centerY = grip.top + ((grip.bottom - grip.top) / 2);
+    const int lineLeft = grip.left + 28;
+    const int lineRight = grip.right - 28;
+
+    HPEN pen = CreatePen(PS_SOLID, 1, GetSysColor(COLOR_GRAYTEXT));
+    HGDIOBJ oldPen = SelectObject(dc, pen);
+    MoveToEx(dc, lineLeft, centerY - 2, nullptr);
+    LineTo(dc, lineRight, centerY - 2);
+    MoveToEx(dc, lineLeft, centerY + 2, nullptr);
+    LineTo(dc, lineRight, centerY + 2);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+}
+
 void LayoutUi(int clientWidth, int clientHeight) {
+    const RECT oldGrip = g_app.previewResizeGrip;
     const int previewX = kLeftPaneWidth + kPreviewMargin;
     const int previewWidth = std::max(kPreviewMinWidth, clientWidth - previewX - kPreviewMargin);
     const int availableHeight = std::max(
-        2 * kPreviewMinHeight + 56,
+        2 * kPreviewMinHeight + 80,
         clientHeight - kPreviewTop - kPreviewMargin);
-    const int maxPreviewHeight = std::max(kPreviewMinHeight, (availableHeight - 56) / 2);
-    const int scaledPreviewHeight = (maxPreviewHeight * g_app.previewScalePercent) / 100;
-    const int previewHeight = std::clamp(scaledPreviewHeight, kPreviewMinHeight, maxPreviewHeight);
+    const int maxPreviewHeight = std::max(kPreviewMinHeight, (availableHeight - 80) / 2);
+    const int requestedPreviewHeight = g_app.previewPreferredHeight > 0 ? g_app.previewPreferredHeight : maxPreviewHeight;
+    const int previewHeight = std::clamp(requestedPreviewHeight, kPreviewMinHeight, maxPreviewHeight);
     const int startTextY = kPreviewTop;
     const int startPreviewY = startTextY + 24;
     const int endTextY = startPreviewY + previewHeight + 12;
     const int endPreviewY = endTextY + 24;
+    const int gripY = endPreviewY + previewHeight + 8;
 
     if (g_app.previewWidth != previewWidth || g_app.previewHeight != previewHeight) {
         g_app.previewWidth = previewWidth;
@@ -1088,29 +1111,24 @@ void LayoutUi(int clientWidth, int clientHeight) {
     MoveControl(g_app.startPreview, previewX, startPreviewY, previewWidth, previewHeight);
     MoveControl(g_app.endPreviewText, previewX, endTextY, previewWidth, 22);
     MoveControl(g_app.endPreview, previewX, endPreviewY, previewWidth, previewHeight);
+
+    g_app.previewResizeGrip = {
+        previewX,
+        gripY,
+        previewX + previewWidth,
+        gripY + kPreviewResizeGripHeight
+    };
+
+    if (g_app.window != nullptr) {
+        InvalidateRect(g_app.window, &oldGrip, TRUE);
+        InvalidateRect(g_app.window, &g_app.previewResizeGrip, TRUE);
+    }
 }
 
 void LayoutUi() {
     RECT client{};
     if (g_app.window != nullptr && GetClientRect(g_app.window, &client)) {
         LayoutUi(client.right - client.left, client.bottom - client.top);
-    }
-}
-
-void UpdatePreviewScaleFromSlider(bool renderPreviews) {
-    const int percent = std::clamp(
-        static_cast<int>(SendMessageW(g_app.previewScaleSlider, TBM_GETPOS, 0, 0)),
-        kPreviewScaleMin,
-        kPreviewScaleMax);
-
-    if (g_app.previewScalePercent != percent) {
-        g_app.previewScalePercent = percent;
-        SetWindowString(g_app.previewScaleText, std::to_wstring(percent) + L"%");
-        LayoutUi();
-    }
-
-    if (renderPreviews) {
-        RefreshPreviewsAfterLayout();
     }
 }
 
@@ -1180,10 +1198,7 @@ void CreateUi() {
     CreateControl(L"STATIC", L"Назва файлу вручну:", 0, 0, 16, 120, 140, 22, 0);
     g_app.manualNameEdit = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, 160, 118, 360, 24, IdManualNameEdit);
     SetCueBanner(g_app.manualNameEdit, L"result.mp4");
-    CreateControl(L"STATIC", L"(необов'язково)", 0, 0, 532, 120, 108, 22, 0);
-    CreateControl(L"STATIC", L"Висота preview:", 0, 0, 646, 120, 110, 22, 0);
-    g_app.previewScaleSlider = CreateControl(TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 0, 754, 112, 108, 34, IdPreviewScale);
-    g_app.previewScaleText = CreateControl(L"STATIC", L"100%", 0, 0, 866, 120, 48, 22, 0);
+    CreateControl(L"STATIC", L"(необов'язково; .mp4 додасться автоматично)", 0, 0, 532, 120, 360, 22, 0);
 
     CreateControl(L"STATIC", L"Інтервал:", 0, 0, 16, 164, 80, 22, 0);
     CreateControl(L"STATIC", L"Початок", 0, 0, 112, 148, 90, 18, 0);
@@ -1237,7 +1252,6 @@ void CreateUi() {
         220,
         IdLog);
 
-    ConfigurePreviewScaleSlider();
     LayoutUi();
     ResetTimeSliders();
 }
@@ -1269,6 +1283,64 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         g_app.isSizing = false;
         RefreshPreviewsAfterLayout();
         return 0;
+    case WM_PAINT: {
+        PAINTSTRUCT paint{};
+        HDC dc = BeginPaint(window, &paint);
+        DrawPreviewResizeGrip(dc);
+        EndPaint(window, &paint);
+        return 0;
+    }
+    case WM_SETCURSOR:
+        if (LOWORD(lParam) == HTCLIENT) {
+            POINT point{};
+            GetCursorPos(&point);
+            ScreenToClient(window, &point);
+            if (g_app.resizingPreview || PointInPreviewResizeGrip(point)) {
+                SetCursor(LoadCursorW(nullptr, IDC_SIZENS));
+                return TRUE;
+            }
+        }
+        break;
+    case WM_LBUTTONDOWN: {
+        POINT point{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        if (PointInPreviewResizeGrip(point)) {
+            g_app.resizingPreview = true;
+            g_app.previewDragStartY = point.y;
+            g_app.previewDragStartHeight = g_app.previewHeight;
+            SetCapture(window);
+            SetCursor(LoadCursorW(nullptr, IDC_SIZENS));
+            return 0;
+        }
+        break;
+    }
+    case WM_MOUSEMOVE:
+        if (g_app.resizingPreview) {
+            const int y = GET_Y_LPARAM(lParam);
+            const int newHeight = std::max(kPreviewMinHeight, g_app.previewDragStartHeight + ((y - g_app.previewDragStartY) / 2));
+            if (newHeight != g_app.previewPreferredHeight) {
+                g_app.previewPreferredHeight = newHeight;
+                LayoutUi();
+            }
+            SetCursor(LoadCursorW(nullptr, IDC_SIZENS));
+            return 0;
+        }
+        break;
+    case WM_LBUTTONUP:
+        if (g_app.resizingPreview) {
+            g_app.resizingPreview = false;
+            g_app.previewPreferredHeight = g_app.previewHeight;
+            ReleaseCapture();
+            RefreshPreviewsAfterLayout();
+            return 0;
+        }
+        break;
+    case WM_CAPTURECHANGED:
+        if (g_app.resizingPreview && reinterpret_cast<HWND>(lParam) != window) {
+            g_app.resizingPreview = false;
+            g_app.previewPreferredHeight = g_app.previewHeight;
+            RefreshPreviewsAfterLayout();
+        }
+        break;
     case WM_KEYDOWN:
         if (wParam == VK_F11) {
             ToggleFullscreen();
@@ -1338,11 +1410,6 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         }
         break;
     case WM_HSCROLL:
-        if (reinterpret_cast<HWND>(lParam) == g_app.previewScaleSlider) {
-            UpdatePreviewScaleFromSlider(LOWORD(wParam) != TB_THUMBTRACK);
-            return 0;
-        }
-
         if (reinterpret_cast<HWND>(lParam) == g_app.startSlider || reinterpret_cast<HWND>(lParam) == g_app.endSlider) {
             HWND slider = reinterpret_cast<HWND>(lParam);
             UpdateTimeFieldsFromSliders(slider);
