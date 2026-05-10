@@ -31,8 +31,8 @@ using video_optimizer::FormatDuration;
 using video_optimizer::ProcessResult;
 using video_optimizer::Segment;
 
-constexpr int kWindowWidth = 940;
-constexpr int kWindowHeight = 850;
+constexpr int kWindowWidth = 1180;
+constexpr int kWindowHeight = 940;
 
 enum ControlId {
     IdInputEdit = 1001,
@@ -46,6 +46,8 @@ enum ControlId {
     IdEndEdit,
     IdStartSlider,
     IdEndSlider,
+    IdStartPreview,
+    IdEndPreview,
     IdAddSegment,
     IdSegmentList,
     IdRemoveSegment,
@@ -70,6 +72,10 @@ struct AppState {
     HWND endSlider = nullptr;
     HWND startSliderText = nullptr;
     HWND endSliderText = nullptr;
+    HWND startPreview = nullptr;
+    HWND endPreview = nullptr;
+    HWND startPreviewText = nullptr;
+    HWND endPreviewText = nullptr;
     HWND segmentList = nullptr;
     HWND overwriteCheck = nullptr;
     HWND keepTempCheck = nullptr;
@@ -77,6 +83,8 @@ struct AppState {
     HWND runButton = nullptr;
     HWND logEdit = nullptr;
     HFONT font = nullptr;
+    HBITMAP startPreviewBitmap = nullptr;
+    HBITMAP endPreviewBitmap = nullptr;
 
     std::filesystem::path inputFile;
     std::filesystem::path outputFolder;
@@ -85,6 +93,8 @@ struct AppState {
     int durationSeconds = 0;
     bool hasDuration = false;
     bool updatingTimeFields = false;
+    int lastStartPreviewSecond = -1;
+    int lastEndPreviewSecond = -1;
 };
 
 AppState g_app;
@@ -191,6 +201,122 @@ HWND CreateControl(const wchar_t* className,
     return handle;
 }
 
+int SliderPos(HWND slider);
+
+void SetPreviewBitmap(HWND control, HBITMAP& storedBitmap, HBITMAP newBitmap) {
+    if (control != nullptr) {
+        SendMessageW(control, STM_SETIMAGE, IMAGE_BITMAP, reinterpret_cast<LPARAM>(newBitmap));
+        InvalidateRect(control, nullptr, TRUE);
+    }
+
+    if (storedBitmap != nullptr) {
+        DeleteObject(storedBitmap);
+    }
+    storedBitmap = newBitmap;
+}
+
+void ClearPreviewImages() {
+    SetPreviewBitmap(g_app.startPreview, g_app.startPreviewBitmap, nullptr);
+    SetPreviewBitmap(g_app.endPreview, g_app.endPreviewBitmap, nullptr);
+    if (g_app.startPreviewText != nullptr) {
+        SetWindowString(g_app.startPreviewText, L"Прев'ю початку");
+    }
+    if (g_app.endPreviewText != nullptr) {
+        SetWindowString(g_app.endPreviewText, L"Прев'ю кінця");
+    }
+    g_app.lastStartPreviewSecond = -1;
+    g_app.lastEndPreviewSecond = -1;
+}
+
+std::filesystem::path BuildPreviewPath(const std::wstring& kind) {
+    std::error_code ec;
+    std::filesystem::path directory = std::filesystem::temp_directory_path(ec);
+    if (ec) {
+        directory = std::filesystem::current_path(ec);
+    }
+
+    return directory / (L"video_optimizer_preview_" + kind + L"_" + UniqueId() + L".bmp");
+}
+
+bool RenderPreviewFrame(int seconds,
+                        HWND previewControl,
+                        HWND captionControl,
+                        HBITMAP& bitmap,
+                        const std::wstring& caption) {
+    if (g_app.inputFile.empty()) {
+        return false;
+    }
+
+    SetWindowString(captionControl, caption + L": оновлення...");
+
+    FFmpegRunner runner;
+    if (!runner.Locate()) {
+        SetWindowString(captionControl, caption + L": FFmpeg не знайдено");
+        return false;
+    }
+
+    const std::filesystem::path previewPath = BuildPreviewPath(caption);
+    const std::vector<std::wstring> arguments = {
+        L"-y",
+        L"-ss", FormatSecondsForUi(seconds),
+        L"-i", g_app.inputFile.wstring(),
+        L"-frames:v", L"1",
+        L"-an",
+        L"-vf", L"scale=200:112:force_original_aspect_ratio=decrease,pad=200:112:(ow-iw)/2:(oh-ih)/2:color=black",
+        L"-f", L"image2",
+        previewPath.wstring()
+    };
+
+    const ProcessResult result = runner.RunFFmpeg(arguments);
+    if (!result.started || result.exitCode != 0) {
+        SetWindowString(captionControl, caption + L": кадр недоступний");
+        std::error_code ec;
+        std::filesystem::remove(previewPath, ec);
+        return false;
+    }
+
+    HBITMAP loadedBitmap = reinterpret_cast<HBITMAP>(LoadImageW(
+        nullptr,
+        previewPath.wstring().c_str(),
+        IMAGE_BITMAP,
+        200,
+        112,
+        LR_LOADFROMFILE));
+
+    std::error_code ec;
+    std::filesystem::remove(previewPath, ec);
+
+    if (loadedBitmap == nullptr) {
+        SetWindowString(captionControl, caption + L": кадр не завантажився");
+        return false;
+    }
+
+    SetPreviewBitmap(previewControl, bitmap, loadedBitmap);
+    SetWindowString(captionControl, caption + L": " + FormatSecondsForUi(seconds));
+    return true;
+}
+
+void UpdatePreviewForSlider(HWND slider, bool force) {
+    if (!g_app.hasDuration) {
+        return;
+    }
+
+    const int seconds = SliderPos(slider);
+    if (slider == g_app.startSlider) {
+        if (!force && seconds == g_app.lastStartPreviewSecond) {
+            return;
+        }
+        g_app.lastStartPreviewSecond = seconds;
+        RenderPreviewFrame(seconds, g_app.startPreview, g_app.startPreviewText, g_app.startPreviewBitmap, L"Прев'ю початку");
+    } else if (slider == g_app.endSlider) {
+        if (!force && seconds == g_app.lastEndPreviewSecond) {
+            return;
+        }
+        g_app.lastEndPreviewSecond = seconds;
+        RenderPreviewFrame(seconds, g_app.endPreview, g_app.endPreviewText, g_app.endPreviewBitmap, L"Прев'ю кінця");
+    }
+}
+
 int SliderPos(HWND slider) {
     return static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0));
 }
@@ -208,6 +334,7 @@ void ResetTimeSliders() {
     g_app.hasDuration = false;
     g_app.durationMilliseconds = 0;
     g_app.durationSeconds = 0;
+    ClearPreviewImages();
     SendMessageW(g_app.startSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 1));
     SendMessageW(g_app.endSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 1));
     SetSliderPos(g_app.startSlider, 0);
@@ -273,6 +400,8 @@ void ConfigureTimeSliders(std::int64_t durationMilliseconds) {
     SetSliderPos(g_app.endSlider, g_app.durationSeconds);
     EnableTimeSliders(true);
     UpdateTimeFieldsFromSliders(g_app.endSlider);
+    UpdatePreviewForSlider(g_app.startSlider, true);
+    UpdatePreviewForSlider(g_app.endSlider, true);
 }
 
 bool TryParseSegmentFromFields(Segment& segment, std::wstring& error) {
@@ -308,6 +437,8 @@ void SyncSlidersFromTimeFields() {
     SetSliderPos(g_app.startSlider, start);
     SetSliderPos(g_app.endSlider, end);
     UpdateTimeFieldsFromSliders(nullptr);
+    UpdatePreviewForSlider(g_app.startSlider, false);
+    UpdatePreviewForSlider(g_app.endSlider, false);
 }
 
 std::filesystem::path MakeSafeOutputPath(const std::filesystem::path& preferred) {
@@ -834,31 +965,35 @@ void CreateUi() {
     CreateControl(L"STATIC", L"Повзунок початку", 0, 0, 16, 214, 130, 22, 0);
     g_app.startSlider = CreateControl(TRACKBAR_CLASSW, L"", TBS_AUTOTICKS | TBS_ENABLESELRANGE, 0, 160, 204, 560, 40, IdStartSlider);
     g_app.startSliderText = CreateControl(L"STATIC", L"Початок: --:--:--", 0, 0, 736, 214, 170, 22, 0);
+    g_app.startPreviewText = CreateControl(L"STATIC", L"Прев'ю початку", 0, 0, 930, 170, 200, 22, 0);
+    g_app.startPreview = CreateControl(L"STATIC", L"", SS_BITMAP | SS_CENTERIMAGE | WS_BORDER, 0, 930, 194, 200, 112, IdStartPreview);
 
-    CreateControl(L"STATIC", L"Повзунок кінця", 0, 0, 16, 258, 130, 22, 0);
-    g_app.endSlider = CreateControl(TRACKBAR_CLASSW, L"", TBS_AUTOTICKS | TBS_ENABLESELRANGE, 0, 160, 248, 560, 40, IdEndSlider);
-    g_app.endSliderText = CreateControl(L"STATIC", L"Кінець: --:--:--", 0, 0, 736, 258, 170, 22, 0);
+    CreateControl(L"STATIC", L"Повзунок кінця", 0, 0, 16, 318, 130, 22, 0);
+    g_app.endSlider = CreateControl(TRACKBAR_CLASSW, L"", TBS_AUTOTICKS | TBS_ENABLESELRANGE, 0, 160, 308, 560, 40, IdEndSlider);
+    g_app.endSliderText = CreateControl(L"STATIC", L"Кінець: --:--:--", 0, 0, 736, 318, 170, 22, 0);
+    g_app.endPreviewText = CreateControl(L"STATIC", L"Прев'ю кінця", 0, 0, 930, 312, 200, 22, 0);
+    g_app.endPreview = CreateControl(L"STATIC", L"", SS_BITMAP | SS_CENTERIMAGE | WS_BORDER, 0, 930, 336, 200, 112, IdEndPreview);
 
-    CreateControl(L"STATIC", L"Список інтервалів:", 0, 0, 16, 318, 130, 22, 0);
-    g_app.segmentList = CreateControl(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, WS_EX_CLIENTEDGE, 160, 306, 602, 132, IdSegmentList);
-    CreateControl(L"BUTTON", L"Видалити", BS_PUSHBUTTON, 0, 776, 306, 130, 28, IdRemoveSegment);
-    CreateControl(L"BUTTON", L"Очистити", BS_PUSHBUTTON, 0, 776, 340, 130, 28, IdClearSegments);
+    CreateControl(L"STATIC", L"Список інтервалів:", 0, 0, 16, 470, 130, 22, 0);
+    g_app.segmentList = CreateControl(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, WS_EX_CLIENTEDGE, 160, 458, 602, 132, IdSegmentList);
+    CreateControl(L"BUTTON", L"Видалити", BS_PUSHBUTTON, 0, 776, 458, 130, 28, IdRemoveSegment);
+    CreateControl(L"BUTTON", L"Очистити", BS_PUSHBUTTON, 0, 776, 492, 130, 28, IdClearSegments);
 
-    g_app.overwriteCheck = CreateControl(L"BUTTON", L"Перезаписати результат, якщо існує", BS_AUTOCHECKBOX, 0, 112, 458, 250, 24, IdOverwrite);
-    g_app.keepTempCheck = CreateControl(L"BUTTON", L"Залишити тимчасові part-файли", BS_AUTOCHECKBOX, 0, 380, 458, 240, 24, IdKeepTemp);
-    g_app.dryRunCheck = CreateControl(L"BUTTON", L"Dry-run", BS_AUTOCHECKBOX, 0, 638, 458, 90, 24, IdDryRun);
-    g_app.runButton = CreateControl(L"BUTTON", L"Створити MP4", BS_DEFPUSHBUTTON, 0, 776, 454, 130, 32, IdRun);
+    g_app.overwriteCheck = CreateControl(L"BUTTON", L"Перезаписати результат, якщо існує", BS_AUTOCHECKBOX, 0, 112, 610, 250, 24, IdOverwrite);
+    g_app.keepTempCheck = CreateControl(L"BUTTON", L"Залишити тимчасові part-файли", BS_AUTOCHECKBOX, 0, 380, 610, 240, 24, IdKeepTemp);
+    g_app.dryRunCheck = CreateControl(L"BUTTON", L"Dry-run", BS_AUTOCHECKBOX, 0, 638, 610, 90, 24, IdDryRun);
+    g_app.runButton = CreateControl(L"BUTTON", L"Створити MP4", BS_DEFPUSHBUTTON, 0, 776, 606, 130, 32, IdRun);
 
-    CreateControl(L"STATIC", L"Лог:", 0, 0, 16, 506, 80, 22, 0);
+    CreateControl(L"STATIC", L"Лог:", 0, 0, 16, 658, 80, 22, 0);
     g_app.logEdit = CreateControl(
         L"EDIT",
         L"",
         ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL,
         WS_EX_CLIENTEDGE,
         112,
-        506,
+        658,
         794,
-        286,
+        220,
         IdLog);
 
     ResetTimeSliders();
@@ -903,11 +1038,16 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         break;
     case WM_HSCROLL:
         if (reinterpret_cast<HWND>(lParam) == g_app.startSlider || reinterpret_cast<HWND>(lParam) == g_app.endSlider) {
-            UpdateTimeFieldsFromSliders(reinterpret_cast<HWND>(lParam));
+            HWND slider = reinterpret_cast<HWND>(lParam);
+            UpdateTimeFieldsFromSliders(slider);
+            if (LOWORD(wParam) != TB_THUMBTRACK) {
+                UpdatePreviewForSlider(slider, false);
+            }
             return 0;
         }
         break;
     case WM_DESTROY:
+        ClearPreviewImages();
         PostQuitMessage(0);
         return 0;
     }
