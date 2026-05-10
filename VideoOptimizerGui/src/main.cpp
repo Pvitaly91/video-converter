@@ -3,12 +3,16 @@
 #include "Segment.h"
 #include "SegmentParser.h"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <Windows.h>
 #include <CommCtrl.h>
 #include <ShlObj.h>
 
 #include <algorithm>
 #include <chrono>
+#include <climits>
 #include <cstdint>
 #include <cwchar>
 #include <cwctype>
@@ -28,7 +32,7 @@ using video_optimizer::ProcessResult;
 using video_optimizer::Segment;
 
 constexpr int kWindowWidth = 940;
-constexpr int kWindowHeight = 760;
+constexpr int kWindowHeight = 850;
 
 enum ControlId {
     IdInputEdit = 1001,
@@ -39,6 +43,8 @@ enum ControlId {
     IdManualNameEdit,
     IdStartEdit,
     IdEndEdit,
+    IdStartSlider,
+    IdEndSlider,
     IdAddSegment,
     IdSegmentList,
     IdRemoveSegment,
@@ -59,6 +65,10 @@ struct AppState {
     HWND manualNameEdit = nullptr;
     HWND startEdit = nullptr;
     HWND endEdit = nullptr;
+    HWND startSlider = nullptr;
+    HWND endSlider = nullptr;
+    HWND startSliderText = nullptr;
+    HWND endSliderText = nullptr;
     HWND segmentList = nullptr;
     HWND overwriteCheck = nullptr;
     HWND keepTempCheck = nullptr;
@@ -70,6 +80,10 @@ struct AppState {
     std::filesystem::path inputFile;
     std::filesystem::path outputFolder;
     std::vector<Segment> segments;
+    std::int64_t durationMilliseconds = 0;
+    int durationSeconds = 0;
+    bool hasDuration = false;
+    bool updatingTimeFields = false;
 };
 
 AppState g_app;
@@ -106,6 +120,10 @@ bool IsChecked(HWND handle) {
     return SendMessageW(handle, BM_GETCHECK, 0, 0) == BST_CHECKED;
 }
 
+void SetCueBanner(HWND handle, const wchar_t* text) {
+    SendMessageW(handle, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(text));
+}
+
 std::wstring UniqueId() {
     const auto ticks = std::chrono::system_clock::now().time_since_epoch().count();
     return std::to_wstring(ticks);
@@ -115,6 +133,13 @@ std::wstring FormatMegabytes(std::uintmax_t bytes) {
     std::wostringstream stream;
     stream << std::fixed << std::setprecision(2) << (static_cast<double>(bytes) / (1024.0 * 1024.0)) << L" MB";
     return stream.str();
+}
+
+std::wstring FormatSecondsForUi(int seconds) {
+    if (seconds < 0) {
+        seconds = 0;
+    }
+    return FormatDuration(static_cast<std::int64_t>(seconds) * 1000);
 }
 
 void AppendLog(const std::wstring& text) {
@@ -163,6 +188,125 @@ HWND CreateControl(const wchar_t* className,
         nullptr);
     ApplyFont(handle);
     return handle;
+}
+
+int SliderPos(HWND slider) {
+    return static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0));
+}
+
+void SetSliderPos(HWND slider, int value) {
+    SendMessageW(slider, TBM_SETPOS, TRUE, value);
+}
+
+void EnableTimeSliders(bool enabled) {
+    EnableWindow(g_app.startSlider, enabled);
+    EnableWindow(g_app.endSlider, enabled);
+}
+
+void ResetTimeSliders() {
+    g_app.hasDuration = false;
+    g_app.durationMilliseconds = 0;
+    g_app.durationSeconds = 0;
+    SendMessageW(g_app.startSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 1));
+    SendMessageW(g_app.endSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 1));
+    SetSliderPos(g_app.startSlider, 0);
+    SetSliderPos(g_app.endSlider, 1);
+    EnableTimeSliders(false);
+    SetWindowString(g_app.startSliderText, L"Початок: --:--:--");
+    SetWindowString(g_app.endSliderText, L"Кінець: --:--:--");
+}
+
+void UpdateTimeFieldsFromSliders(HWND changedSlider) {
+    if (!g_app.hasDuration || g_app.updatingTimeFields) {
+        return;
+    }
+
+    int start = SliderPos(g_app.startSlider);
+    int end = SliderPos(g_app.endSlider);
+
+    if (start >= end) {
+        if (changedSlider == g_app.startSlider) {
+            end = std::min(start + 1, g_app.durationSeconds);
+            if (end == start) {
+                start = std::max(0, end - 1);
+            }
+            SetSliderPos(g_app.endSlider, end);
+            SetSliderPos(g_app.startSlider, start);
+        } else {
+            start = std::max(0, end - 1);
+            if (start == end) {
+                end = std::min(g_app.durationSeconds, start + 1);
+            }
+            SetSliderPos(g_app.startSlider, start);
+            SetSliderPos(g_app.endSlider, end);
+        }
+    }
+
+    const std::wstring startText = FormatSecondsForUi(start);
+    const std::wstring endText = FormatSecondsForUi(end);
+
+    g_app.updatingTimeFields = true;
+    SetWindowString(g_app.startEdit, startText);
+    SetWindowString(g_app.endEdit, endText);
+    g_app.updatingTimeFields = false;
+
+    SetWindowString(g_app.startSliderText, L"Початок: " + startText);
+    SetWindowString(g_app.endSliderText, L"Кінець: " + endText);
+}
+
+void ConfigureTimeSliders(std::int64_t durationMilliseconds) {
+    g_app.durationMilliseconds = durationMilliseconds;
+    g_app.durationSeconds = static_cast<int>(std::min<std::int64_t>(
+        std::max<std::int64_t>(1, (durationMilliseconds + 999) / 1000),
+        INT_MAX - 1));
+    g_app.hasDuration = true;
+
+    SendMessageW(g_app.startSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, g_app.durationSeconds));
+    SendMessageW(g_app.endSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, g_app.durationSeconds));
+    SendMessageW(g_app.startSlider, TBM_SETPAGESIZE, 0, 10);
+    SendMessageW(g_app.endSlider, TBM_SETPAGESIZE, 0, 10);
+    SendMessageW(g_app.startSlider, TBM_SETTICFREQ, 60, 0);
+    SendMessageW(g_app.endSlider, TBM_SETTICFREQ, 60, 0);
+
+    SetSliderPos(g_app.startSlider, 0);
+    SetSliderPos(g_app.endSlider, g_app.durationSeconds);
+    EnableTimeSliders(true);
+    UpdateTimeFieldsFromSliders(g_app.endSlider);
+}
+
+bool TryParseSegmentFromFields(Segment& segment, std::wstring& error) {
+    const std::wstring start = Trim(GetWindowString(g_app.startEdit));
+    const std::wstring end = Trim(GetWindowString(g_app.endEdit));
+
+    std::vector<Segment> parsed;
+    if (!video_optimizer::ParseSegmentList(start + L"-" + end, parsed, error)) {
+        return false;
+    }
+
+    segment = parsed.front();
+    return true;
+}
+
+void SyncSlidersFromTimeFields() {
+    if (!g_app.hasDuration || g_app.updatingTimeFields) {
+        return;
+    }
+
+    Segment segment;
+    std::wstring error;
+    if (!TryParseSegmentFromFields(segment, error)) {
+        return;
+    }
+
+    const int start = static_cast<int>(std::min<std::int64_t>(segment.startMilliseconds / 1000, g_app.durationSeconds));
+    const int end = static_cast<int>(std::min<std::int64_t>((segment.endMilliseconds + 999) / 1000, g_app.durationSeconds));
+    if (start >= end) {
+        return;
+    }
+
+    SetSliderPos(g_app.startSlider, start);
+    SetSliderPos(g_app.endSlider, end);
+    UpdateTimeFieldsFromSliders(nullptr);
 }
 
 std::filesystem::path MakeSafeOutputPath(const std::filesystem::path& preferred) {
@@ -298,6 +442,7 @@ bool TryParseDuration(const std::wstring& output, std::int64_t& milliseconds) {
 
 void LoadDuration() {
     SetWindowString(g_app.durationText, L"Тривалість: визначається...");
+    ResetTimeSliders();
 
     FFmpegRunner runner;
     if (!runner.Locate()) {
@@ -334,6 +479,7 @@ void LoadDuration() {
     }
 
     SetWindowString(g_app.durationText, L"Тривалість: " + FormatDuration(milliseconds));
+    ConfigureTimeSliders(milliseconds);
 }
 
 bool PickInputFile() {
@@ -398,17 +544,19 @@ void RefreshSegmentsList() {
 }
 
 void AddSegmentFromInputs() {
-    const std::wstring start = Trim(GetWindowString(g_app.startEdit));
-    const std::wstring end = Trim(GetWindowString(g_app.endEdit));
-
-    std::vector<Segment> parsed;
+    Segment segment;
     std::wstring error;
-    if (!video_optimizer::ParseSegmentList(start + L"-" + end, parsed, error)) {
+    if (!TryParseSegmentFromFields(segment, error)) {
         ShowError(error + L"\nПриклад: 1:00-2:00 або 00:01:00.500-00:02:10.000");
         return;
     }
 
-    g_app.segments.push_back(parsed.front());
+    if (g_app.hasDuration && segment.endMilliseconds > g_app.durationMilliseconds + 999) {
+        ShowError(L"Кінець інтервалу виходить за межі тривалості відео.");
+        return;
+    }
+
+    g_app.segments.push_back(segment);
     SetWindowString(g_app.startEdit, L"");
     SetWindowString(g_app.endEdit, L"");
     RefreshSegmentsList();
@@ -630,36 +778,50 @@ void CreateUi() {
 
     CreateControl(L"STATIC", L"Назва файлу вручну:", 0, 0, 16, 120, 140, 22, 0);
     g_app.manualNameEdit = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, 160, 118, 360, 24, IdManualNameEdit);
+    SetCueBanner(g_app.manualNameEdit, L"result.mp4");
     CreateControl(L"STATIC", L"(необов'язково; .mp4 додасться автоматично)", 0, 0, 532, 120, 360, 22, 0);
 
     CreateControl(L"STATIC", L"Інтервал:", 0, 0, 16, 164, 80, 22, 0);
     CreateControl(L"STATIC", L"Початок", 0, 0, 112, 148, 90, 18, 0);
     g_app.startEdit = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, 112, 166, 130, 24, IdStartEdit);
+    SetCueBanner(g_app.startEdit, L"HH:MM:SS");
     CreateControl(L"STATIC", L"Кінець", 0, 0, 260, 148, 90, 18, 0);
     g_app.endEdit = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, 260, 166, 130, 24, IdEndEdit);
+    SetCueBanner(g_app.endEdit, L"HH:MM:SS");
     CreateControl(L"BUTTON", L"Додати", BS_PUSHBUTTON, 0, 408, 164, 100, 28, IdAddSegment);
     CreateControl(L"STATIC", L"Формати: SS, MM:SS, HH:MM:SS, HH:MM:SS.mmm", 0, 0, 526, 168, 380, 22, 0);
 
-    g_app.segmentList = CreateControl(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, WS_EX_CLIENTEDGE, 112, 204, 650, 132, IdSegmentList);
-    CreateControl(L"BUTTON", L"Видалити", BS_PUSHBUTTON, 0, 776, 204, 130, 28, IdRemoveSegment);
-    CreateControl(L"BUTTON", L"Очистити", BS_PUSHBUTTON, 0, 776, 238, 130, 28, IdClearSegments);
+    CreateControl(L"STATIC", L"Повзунок початку", 0, 0, 16, 214, 130, 22, 0);
+    g_app.startSlider = CreateControl(TRACKBAR_CLASSW, L"", TBS_AUTOTICKS | TBS_ENABLESELRANGE, 0, 160, 204, 560, 40, IdStartSlider);
+    g_app.startSliderText = CreateControl(L"STATIC", L"Початок: --:--:--", 0, 0, 736, 214, 170, 22, 0);
 
-    g_app.overwriteCheck = CreateControl(L"BUTTON", L"Перезаписати результат, якщо існує", BS_AUTOCHECKBOX, 0, 112, 350, 250, 24, IdOverwrite);
-    g_app.keepTempCheck = CreateControl(L"BUTTON", L"Залишити тимчасові part-файли", BS_AUTOCHECKBOX, 0, 380, 350, 240, 24, IdKeepTemp);
-    g_app.dryRunCheck = CreateControl(L"BUTTON", L"Dry-run", BS_AUTOCHECKBOX, 0, 638, 350, 90, 24, IdDryRun);
-    g_app.runButton = CreateControl(L"BUTTON", L"Створити MP4", BS_DEFPUSHBUTTON, 0, 776, 346, 130, 32, IdRun);
+    CreateControl(L"STATIC", L"Повзунок кінця", 0, 0, 16, 258, 130, 22, 0);
+    g_app.endSlider = CreateControl(TRACKBAR_CLASSW, L"", TBS_AUTOTICKS | TBS_ENABLESELRANGE, 0, 160, 248, 560, 40, IdEndSlider);
+    g_app.endSliderText = CreateControl(L"STATIC", L"Кінець: --:--:--", 0, 0, 736, 258, 170, 22, 0);
 
-    CreateControl(L"STATIC", L"Лог:", 0, 0, 16, 398, 80, 22, 0);
+    CreateControl(L"STATIC", L"Список інтервалів:", 0, 0, 16, 318, 130, 22, 0);
+    g_app.segmentList = CreateControl(L"LISTBOX", L"", LBS_NOTIFY | WS_VSCROLL | WS_BORDER, WS_EX_CLIENTEDGE, 160, 306, 602, 132, IdSegmentList);
+    CreateControl(L"BUTTON", L"Видалити", BS_PUSHBUTTON, 0, 776, 306, 130, 28, IdRemoveSegment);
+    CreateControl(L"BUTTON", L"Очистити", BS_PUSHBUTTON, 0, 776, 340, 130, 28, IdClearSegments);
+
+    g_app.overwriteCheck = CreateControl(L"BUTTON", L"Перезаписати результат, якщо існує", BS_AUTOCHECKBOX, 0, 112, 458, 250, 24, IdOverwrite);
+    g_app.keepTempCheck = CreateControl(L"BUTTON", L"Залишити тимчасові part-файли", BS_AUTOCHECKBOX, 0, 380, 458, 240, 24, IdKeepTemp);
+    g_app.dryRunCheck = CreateControl(L"BUTTON", L"Dry-run", BS_AUTOCHECKBOX, 0, 638, 458, 90, 24, IdDryRun);
+    g_app.runButton = CreateControl(L"BUTTON", L"Створити MP4", BS_DEFPUSHBUTTON, 0, 776, 454, 130, 32, IdRun);
+
+    CreateControl(L"STATIC", L"Лог:", 0, 0, 16, 506, 80, 22, 0);
     g_app.logEdit = CreateControl(
         L"EDIT",
         L"",
         ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL,
         WS_EX_CLIENTEDGE,
         112,
-        398,
+        506,
         794,
-        300,
+        286,
         IdLog);
+
+    ResetTimeSliders();
 }
 
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -669,6 +831,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         CreateUi();
         return 0;
     case WM_COMMAND:
+        if ((LOWORD(wParam) == IdStartEdit || LOWORD(wParam) == IdEndEdit) && HIWORD(wParam) == EN_KILLFOCUS) {
+            SyncSlidersFromTimeFields();
+            return 0;
+        }
+
         switch (LOWORD(wParam)) {
         case IdBrowseInput:
             PickInputFile();
@@ -688,6 +855,12 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             return 0;
         case IdRun:
             RunCut();
+            return 0;
+        }
+        break;
+    case WM_HSCROLL:
+        if (reinterpret_cast<HWND>(lParam) == g_app.startSlider || reinterpret_cast<HWND>(lParam) == g_app.endSlider) {
+            UpdateTimeFieldsFromSliders(reinterpret_cast<HWND>(lParam));
             return 0;
         }
         break;
