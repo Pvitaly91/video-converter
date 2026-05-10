@@ -677,6 +677,37 @@ bool TryParseDuration(const std::wstring& output, std::int64_t& milliseconds) {
     }
 }
 
+int CALLBACK BrowseFolderCallback(HWND dialog, UINT message, LPARAM, LPARAM data) {
+    if (message == BFFM_INITIALIZED && data != 0) {
+        SendMessageW(dialog, BFFM_SETSELECTIONW, TRUE, data);
+    }
+    return 0;
+}
+
+std::filesystem::path CurrentOutputFolderForPicker() {
+    std::error_code ec;
+    if (!g_app.outputFolder.empty()
+        && std::filesystem::exists(g_app.outputFolder, ec)
+        && !ec
+        && std::filesystem::is_directory(g_app.outputFolder, ec)
+        && !ec) {
+        return g_app.outputFolder;
+    }
+
+    ec.clear();
+    const std::filesystem::path inputFolder = g_app.inputFile.parent_path();
+    if (!inputFolder.empty()
+        && std::filesystem::exists(inputFolder, ec)
+        && !ec
+        && std::filesystem::is_directory(inputFolder, ec)
+        && !ec) {
+        return inputFolder;
+    }
+
+    ec.clear();
+    return std::filesystem::current_path(ec);
+}
+
 void LoadDuration() {
     SetWindowString(g_app.durationText, L"Тривалість: визначається...");
     ResetTimeSliders();
@@ -736,20 +767,28 @@ bool PickInputFile() {
     }
 
     g_app.inputFile = std::filesystem::path(fileName);
-    g_app.outputFolder = g_app.inputFile.parent_path();
     SetWindowString(g_app.inputEdit, g_app.inputFile.wstring());
-    SetWindowString(g_app.outputFolderEdit, g_app.outputFolder.wstring());
+    if (g_app.outputFolder.empty()) {
+        g_app.outputFolder = g_app.inputFile.parent_path();
+        SetWindowString(g_app.outputFolderEdit, g_app.outputFolder.wstring());
+    }
     ClearLog();
     AppendLogLine(L"Обрано файл: " + g_app.inputFile.wstring());
+    AppendLogLine(L"Папка результату: " + g_app.outputFolder.wstring());
     LoadDuration();
     return true;
 }
 
 bool PickOutputFolder() {
+    const std::filesystem::path initialFolder = CurrentOutputFolderForPicker();
+    const std::wstring initialFolderText = initialFolder.wstring();
+
     BROWSEINFOW browse{};
     browse.hwndOwner = g_app.window;
     browse.lpszTitle = L"Оберіть папку для результату";
     browse.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+    browse.lpfn = BrowseFolderCallback;
+    browse.lParam = reinterpret_cast<LPARAM>(initialFolderText.c_str());
 
     PIDLIST_ABSOLUTE itemList = SHBrowseForFolderW(&browse);
     if (itemList == nullptr) {
