@@ -53,6 +53,14 @@ enum ControlId {
     IdEndEdit,
     IdStartSlider,
     IdEndSlider,
+    IdStartMinus10,
+    IdStartMinus1,
+    IdStartPlus1,
+    IdStartPlus10,
+    IdEndMinus10,
+    IdEndMinus1,
+    IdEndPlus1,
+    IdEndPlus10,
     IdStartPreview,
     IdEndPreview,
     IdAddSegment,
@@ -367,6 +375,14 @@ void SetSliderPos(HWND slider, int value) {
 void EnableTimeSliders(bool enabled) {
     EnableWindow(g_app.startSlider, enabled);
     EnableWindow(g_app.endSlider, enabled);
+    EnableWindow(GetDlgItem(g_app.window, IdStartMinus10), enabled);
+    EnableWindow(GetDlgItem(g_app.window, IdStartMinus1), enabled);
+    EnableWindow(GetDlgItem(g_app.window, IdStartPlus1), enabled);
+    EnableWindow(GetDlgItem(g_app.window, IdStartPlus10), enabled);
+    EnableWindow(GetDlgItem(g_app.window, IdEndMinus10), enabled);
+    EnableWindow(GetDlgItem(g_app.window, IdEndMinus1), enabled);
+    EnableWindow(GetDlgItem(g_app.window, IdEndPlus1), enabled);
+    EnableWindow(GetDlgItem(g_app.window, IdEndPlus10), enabled);
 }
 
 void ResetTimeSliders() {
@@ -457,14 +473,36 @@ bool TryParseSegmentFromFields(Segment& segment, std::wstring& error) {
     return true;
 }
 
+void SetTimeFieldsFromSegment(const Segment& segment) {
+    g_app.updatingTimeFields = true;
+    SetWindowString(g_app.startEdit, segment.start);
+    SetWindowString(g_app.endEdit, segment.end);
+    g_app.updatingTimeFields = false;
+}
+
+void UpdateSliderLabelsFromPositions() {
+    if (!g_app.hasDuration) {
+        return;
+    }
+
+    SetWindowString(g_app.startSliderText, L"Початок: " + FormatSecondsForUi(SliderPos(g_app.startSlider)));
+    SetWindowString(g_app.endSliderText, L"Кінець: " + FormatSecondsForUi(SliderPos(g_app.endSlider)));
+}
+
 void SyncSlidersFromTimeFields() {
-    if (!g_app.hasDuration || g_app.updatingTimeFields) {
+    if (g_app.updatingTimeFields) {
         return;
     }
 
     Segment segment;
     std::wstring error;
     if (!TryParseSegmentFromFields(segment, error)) {
+        return;
+    }
+
+    SetTimeFieldsFromSegment(segment);
+
+    if (!g_app.hasDuration) {
         return;
     }
 
@@ -476,9 +514,29 @@ void SyncSlidersFromTimeFields() {
 
     SetSliderPos(g_app.startSlider, start);
     SetSliderPos(g_app.endSlider, end);
-    UpdateTimeFieldsFromSliders(nullptr);
+    UpdateSliderLabelsFromPositions();
     UpdatePreviewForSlider(g_app.startSlider, false);
     UpdatePreviewForSlider(g_app.endSlider, false);
+}
+
+void AdjustTimeSlider(HWND slider, int deltaSeconds) {
+    if (!g_app.hasDuration || slider == nullptr) {
+        return;
+    }
+
+    int start = SliderPos(g_app.startSlider);
+    int end = SliderPos(g_app.endSlider);
+
+    if (slider == g_app.startSlider) {
+        start = std::clamp(start + deltaSeconds, 0, std::max(0, end - 1));
+        SetSliderPos(g_app.startSlider, start);
+    } else if (slider == g_app.endSlider) {
+        end = std::clamp(end + deltaSeconds, std::min(g_app.durationSeconds, start + 1), g_app.durationSeconds);
+        SetSliderPos(g_app.endSlider, end);
+    }
+
+    UpdateTimeFieldsFromSliders(slider);
+    UpdatePreviewForSlider(slider, false);
 }
 
 std::filesystem::path MakeSafeOutputPath(const std::filesystem::path& preferred) {
@@ -1102,12 +1160,20 @@ void CreateUi() {
     CreateControl(L"STATIC", L"Повзунок початку", 0, 0, 16, 214, 130, 22, 0);
     g_app.startSlider = CreateControl(TRACKBAR_CLASSW, L"", TBS_AUTOTICKS | TBS_ENABLESELRANGE, 0, 160, 204, 560, 40, IdStartSlider);
     g_app.startSliderText = CreateControl(L"STATIC", L"Початок: --:--:--", 0, 0, 736, 214, 170, 22, 0);
+    CreateControl(L"BUTTON", L"-10s", BS_PUSHBUTTON, 0, 736, 240, 42, 24, IdStartMinus10);
+    CreateControl(L"BUTTON", L"-1s", BS_PUSHBUTTON, 0, 782, 240, 42, 24, IdStartMinus1);
+    CreateControl(L"BUTTON", L"+1s", BS_PUSHBUTTON, 0, 828, 240, 42, 24, IdStartPlus1);
+    CreateControl(L"BUTTON", L"+10s", BS_PUSHBUTTON, 0, 874, 240, 46, 24, IdStartPlus10);
     g_app.startPreviewText = CreateControl(L"STATIC", L"Прев'ю початку", 0, 0, 930, 170, 200, 22, 0);
     g_app.startPreview = CreateControl(L"STATIC", L"", SS_BITMAP | SS_CENTERIMAGE | WS_BORDER, 0, 930, 194, 200, 112, IdStartPreview);
 
     CreateControl(L"STATIC", L"Повзунок кінця", 0, 0, 16, 318, 130, 22, 0);
     g_app.endSlider = CreateControl(TRACKBAR_CLASSW, L"", TBS_AUTOTICKS | TBS_ENABLESELRANGE, 0, 160, 308, 560, 40, IdEndSlider);
     g_app.endSliderText = CreateControl(L"STATIC", L"Кінець: --:--:--", 0, 0, 736, 318, 170, 22, 0);
+    CreateControl(L"BUTTON", L"-10s", BS_PUSHBUTTON, 0, 736, 344, 42, 24, IdEndMinus10);
+    CreateControl(L"BUTTON", L"-1s", BS_PUSHBUTTON, 0, 782, 344, 42, 24, IdEndMinus1);
+    CreateControl(L"BUTTON", L"+1s", BS_PUSHBUTTON, 0, 828, 344, 42, 24, IdEndPlus1);
+    CreateControl(L"BUTTON", L"+10s", BS_PUSHBUTTON, 0, 874, 344, 46, 24, IdEndPlus10);
     g_app.endPreviewText = CreateControl(L"STATIC", L"Прев'ю кінця", 0, 0, 930, 312, 200, 22, 0);
     g_app.endPreview = CreateControl(L"STATIC", L"", SS_BITMAP | SS_CENTERIMAGE | WS_BORDER, 0, 930, 336, 200, 112, IdEndPreview);
 
@@ -1202,6 +1268,30 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             return 0;
         case IdFullscreen:
             ToggleFullscreen();
+            return 0;
+        case IdStartMinus10:
+            AdjustTimeSlider(g_app.startSlider, -10);
+            return 0;
+        case IdStartMinus1:
+            AdjustTimeSlider(g_app.startSlider, -1);
+            return 0;
+        case IdStartPlus1:
+            AdjustTimeSlider(g_app.startSlider, 1);
+            return 0;
+        case IdStartPlus10:
+            AdjustTimeSlider(g_app.startSlider, 10);
+            return 0;
+        case IdEndMinus10:
+            AdjustTimeSlider(g_app.endSlider, -10);
+            return 0;
+        case IdEndMinus1:
+            AdjustTimeSlider(g_app.endSlider, -1);
+            return 0;
+        case IdEndPlus1:
+            AdjustTimeSlider(g_app.endSlider, 1);
+            return 0;
+        case IdEndPlus10:
+            AdjustTimeSlider(g_app.endSlider, 10);
             return 0;
         case IdRun:
             RunCut();
