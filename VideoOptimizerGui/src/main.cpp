@@ -40,6 +40,9 @@ constexpr int kPreviewMargin = 16;
 constexpr int kPreviewMinWidth = 180;
 constexpr int kPreviewMinHeight = 112;
 constexpr int kPreviewTop = 170;
+constexpr int kPreviewScaleMin = 50;
+constexpr int kPreviewScaleMax = 100;
+constexpr int kPreviewScaleDefault = 100;
 
 enum ControlId {
     IdInputEdit = 1001,
@@ -71,6 +74,7 @@ enum ControlId {
     IdKeepTemp,
     IdDryRun,
     IdFullscreen,
+    IdPreviewScale,
     IdRun,
     IdLog
 };
@@ -97,6 +101,8 @@ struct AppState {
     HWND keepTempCheck = nullptr;
     HWND dryRunCheck = nullptr;
     HWND fullscreenButton = nullptr;
+    HWND previewScaleSlider = nullptr;
+    HWND previewScaleText = nullptr;
     HWND runButton = nullptr;
     HWND logEdit = nullptr;
     HFONT font = nullptr;
@@ -117,6 +123,7 @@ struct AppState {
     WINDOWPLACEMENT windowedPlacement{ sizeof(WINDOWPLACEMENT) };
     int previewWidth = 0;
     int previewHeight = 0;
+    int previewScalePercent = kPreviewScaleDefault;
     int lastStartPreviewSecond = -1;
     int lastEndPreviewSecond = -1;
 };
@@ -383,6 +390,15 @@ void EnableTimeSliders(bool enabled) {
     EnableWindow(GetDlgItem(g_app.window, IdEndMinus1), enabled);
     EnableWindow(GetDlgItem(g_app.window, IdEndPlus1), enabled);
     EnableWindow(GetDlgItem(g_app.window, IdEndPlus10), enabled);
+}
+
+void ConfigurePreviewScaleSlider() {
+    SendMessageW(g_app.previewScaleSlider, TBM_SETRANGE, TRUE, MAKELPARAM(kPreviewScaleMin, kPreviewScaleMax));
+    SendMessageW(g_app.previewScaleSlider, TBM_SETPAGESIZE, 0, 10);
+    SendMessageW(g_app.previewScaleSlider, TBM_SETTICFREQ, 10, 0);
+    SendMessageW(g_app.previewScaleSlider, TBM_SETPOS, TRUE, kPreviewScaleDefault);
+    g_app.previewScalePercent = kPreviewScaleDefault;
+    SetWindowString(g_app.previewScaleText, std::to_wstring(g_app.previewScalePercent) + L"%");
 }
 
 void ResetTimeSliders() {
@@ -1054,7 +1070,9 @@ void LayoutUi(int clientWidth, int clientHeight) {
     const int availableHeight = std::max(
         2 * kPreviewMinHeight + 56,
         clientHeight - kPreviewTop - kPreviewMargin);
-    const int previewHeight = std::max(kPreviewMinHeight, (availableHeight - 56) / 2);
+    const int maxPreviewHeight = std::max(kPreviewMinHeight, (availableHeight - 56) / 2);
+    const int scaledPreviewHeight = (maxPreviewHeight * g_app.previewScalePercent) / 100;
+    const int previewHeight = std::clamp(scaledPreviewHeight, kPreviewMinHeight, maxPreviewHeight);
     const int startTextY = kPreviewTop;
     const int startPreviewY = startTextY + 24;
     const int endTextY = startPreviewY + previewHeight + 12;
@@ -1076,6 +1094,23 @@ void LayoutUi() {
     RECT client{};
     if (g_app.window != nullptr && GetClientRect(g_app.window, &client)) {
         LayoutUi(client.right - client.left, client.bottom - client.top);
+    }
+}
+
+void UpdatePreviewScaleFromSlider(bool renderPreviews) {
+    const int percent = std::clamp(
+        static_cast<int>(SendMessageW(g_app.previewScaleSlider, TBM_GETPOS, 0, 0)),
+        kPreviewScaleMin,
+        kPreviewScaleMax);
+
+    if (g_app.previewScalePercent != percent) {
+        g_app.previewScalePercent = percent;
+        SetWindowString(g_app.previewScaleText, std::to_wstring(percent) + L"%");
+        LayoutUi();
+    }
+
+    if (renderPreviews) {
+        RefreshPreviewsAfterLayout();
     }
 }
 
@@ -1145,7 +1180,10 @@ void CreateUi() {
     CreateControl(L"STATIC", L"Назва файлу вручну:", 0, 0, 16, 120, 140, 22, 0);
     g_app.manualNameEdit = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, 160, 118, 360, 24, IdManualNameEdit);
     SetCueBanner(g_app.manualNameEdit, L"result.mp4");
-    CreateControl(L"STATIC", L"(необов'язково; .mp4 додасться автоматично)", 0, 0, 532, 120, 360, 22, 0);
+    CreateControl(L"STATIC", L"(необов'язково)", 0, 0, 532, 120, 108, 22, 0);
+    CreateControl(L"STATIC", L"Висота preview:", 0, 0, 646, 120, 110, 22, 0);
+    g_app.previewScaleSlider = CreateControl(TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 0, 754, 112, 108, 34, IdPreviewScale);
+    g_app.previewScaleText = CreateControl(L"STATIC", L"100%", 0, 0, 866, 120, 48, 22, 0);
 
     CreateControl(L"STATIC", L"Інтервал:", 0, 0, 16, 164, 80, 22, 0);
     CreateControl(L"STATIC", L"Початок", 0, 0, 112, 148, 90, 18, 0);
@@ -1199,6 +1237,7 @@ void CreateUi() {
         220,
         IdLog);
 
+    ConfigurePreviewScaleSlider();
     LayoutUi();
     ResetTimeSliders();
 }
@@ -1299,6 +1338,11 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         }
         break;
     case WM_HSCROLL:
+        if (reinterpret_cast<HWND>(lParam) == g_app.previewScaleSlider) {
+            UpdatePreviewScaleFromSlider(LOWORD(wParam) != TB_THUMBTRACK);
+            return 0;
+        }
+
         if (reinterpret_cast<HWND>(lParam) == g_app.startSlider || reinterpret_cast<HWND>(lParam) == g_app.endSlider) {
             HWND slider = reinterpret_cast<HWND>(lParam);
             UpdateTimeFieldsFromSliders(slider);
