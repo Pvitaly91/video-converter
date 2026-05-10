@@ -33,6 +33,13 @@ using video_optimizer::Segment;
 
 constexpr int kWindowWidth = 1180;
 constexpr int kWindowHeight = 940;
+constexpr int kMinWindowWidth = 1120;
+constexpr int kMinWindowHeight = 720;
+constexpr int kLeftPaneWidth = 920;
+constexpr int kPreviewMargin = 16;
+constexpr int kPreviewMinWidth = 180;
+constexpr int kPreviewMinHeight = 112;
+constexpr int kPreviewTop = 170;
 
 enum ControlId {
     IdInputEdit = 1001,
@@ -55,6 +62,7 @@ enum ControlId {
     IdOverwrite,
     IdKeepTemp,
     IdDryRun,
+    IdFullscreen,
     IdRun,
     IdLog
 };
@@ -80,6 +88,7 @@ struct AppState {
     HWND overwriteCheck = nullptr;
     HWND keepTempCheck = nullptr;
     HWND dryRunCheck = nullptr;
+    HWND fullscreenButton = nullptr;
     HWND runButton = nullptr;
     HWND logEdit = nullptr;
     HFONT font = nullptr;
@@ -93,6 +102,13 @@ struct AppState {
     int durationSeconds = 0;
     bool hasDuration = false;
     bool updatingTimeFields = false;
+    bool fullscreen = false;
+    bool isSizing = false;
+    bool previewLayoutDirty = false;
+    DWORD windowedStyle = 0;
+    WINDOWPLACEMENT windowedPlacement{ sizeof(WINDOWPLACEMENT) };
+    int previewWidth = 0;
+    int previewHeight = 0;
     int lastStartPreviewSecond = -1;
     int lastEndPreviewSecond = -1;
 };
@@ -238,6 +254,28 @@ std::filesystem::path BuildPreviewPath(const std::wstring& kind) {
     return directory / (L"video_optimizer_preview_" + kind + L"_" + UniqueId() + L".bmp");
 }
 
+SIZE PreviewBitmapSize(HWND previewControl) {
+    RECT rect{};
+    if (previewControl != nullptr && GetClientRect(previewControl, &rect)) {
+        const int width = static_cast<int>(rect.right - rect.left);
+        const int height = static_cast<int>(rect.bottom - rect.top);
+        return {
+            std::max(kPreviewMinWidth, width),
+            std::max(kPreviewMinHeight, height)
+        };
+    }
+
+    return { 200, 112 };
+}
+
+std::wstring BuildPreviewFilter(const SIZE& size) {
+    const std::wstring width = std::to_wstring(size.cx);
+    const std::wstring height = std::to_wstring(size.cy);
+    return L"scale=" + width + L":" + height
+        + L":force_original_aspect_ratio=decrease,pad=" + width + L":" + height
+        + L":(ow-iw)/2:(oh-ih)/2:color=black";
+}
+
 bool RenderPreviewFrame(int seconds,
                         HWND previewControl,
                         HWND captionControl,
@@ -256,13 +294,14 @@ bool RenderPreviewFrame(int seconds,
     }
 
     const std::filesystem::path previewPath = BuildPreviewPath(caption);
+    const SIZE previewSize = PreviewBitmapSize(previewControl);
     const std::vector<std::wstring> arguments = {
         L"-y",
         L"-ss", FormatSecondsForUi(seconds),
         L"-i", g_app.inputFile.wstring(),
         L"-frames:v", L"1",
         L"-an",
-        L"-vf", L"scale=200:112:force_original_aspect_ratio=decrease,pad=200:112:(ow-iw)/2:(oh-ih)/2:color=black",
+        L"-vf", BuildPreviewFilter(previewSize),
         L"-f", L"image2",
         previewPath.wstring()
     };
@@ -279,8 +318,8 @@ bool RenderPreviewFrame(int seconds,
         nullptr,
         previewPath.wstring().c_str(),
         IMAGE_BITMAP,
-        200,
-        112,
+        previewSize.cx,
+        previewSize.cy,
         LR_LOADFROMFILE));
 
     std::error_code ec;
@@ -402,6 +441,7 @@ void ConfigureTimeSliders(std::int64_t durationMilliseconds) {
     UpdateTimeFieldsFromSliders(g_app.endSlider);
     UpdatePreviewForSlider(g_app.startSlider, true);
     UpdatePreviewForSlider(g_app.endSlider, true);
+    g_app.previewLayoutDirty = false;
 }
 
 bool TryParseSegmentFromFields(Segment& segment, std::wstring& error) {
@@ -934,6 +974,102 @@ void RunCut() {
                 ok ? MB_ICONINFORMATION : MB_ICONERROR);
 }
 
+void MoveControl(HWND control, int x, int y, int width, int height) {
+    if (control != nullptr) {
+        MoveWindow(control, x, y, width, height, TRUE);
+    }
+}
+
+void RefreshPreviewsAfterLayout() {
+    if (!g_app.previewLayoutDirty || !g_app.hasDuration) {
+        return;
+    }
+
+    g_app.previewLayoutDirty = false;
+    UpdatePreviewForSlider(g_app.startSlider, true);
+    UpdatePreviewForSlider(g_app.endSlider, true);
+}
+
+void LayoutUi(int clientWidth, int clientHeight) {
+    const int previewX = kLeftPaneWidth + kPreviewMargin;
+    const int previewWidth = std::max(kPreviewMinWidth, clientWidth - previewX - kPreviewMargin);
+    const int availableHeight = std::max(
+        2 * kPreviewMinHeight + 56,
+        clientHeight - kPreviewTop - kPreviewMargin);
+    const int previewHeight = std::max(kPreviewMinHeight, (availableHeight - 56) / 2);
+    const int startTextY = kPreviewTop;
+    const int startPreviewY = startTextY + 24;
+    const int endTextY = startPreviewY + previewHeight + 12;
+    const int endPreviewY = endTextY + 24;
+
+    if (g_app.previewWidth != previewWidth || g_app.previewHeight != previewHeight) {
+        g_app.previewWidth = previewWidth;
+        g_app.previewHeight = previewHeight;
+        g_app.previewLayoutDirty = true;
+    }
+
+    MoveControl(g_app.startPreviewText, previewX, startTextY, previewWidth, 22);
+    MoveControl(g_app.startPreview, previewX, startPreviewY, previewWidth, previewHeight);
+    MoveControl(g_app.endPreviewText, previewX, endTextY, previewWidth, 22);
+    MoveControl(g_app.endPreview, previewX, endPreviewY, previewWidth, previewHeight);
+}
+
+void LayoutUi() {
+    RECT client{};
+    if (g_app.window != nullptr && GetClientRect(g_app.window, &client)) {
+        LayoutUi(client.right - client.left, client.bottom - client.top);
+    }
+}
+
+void ToggleFullscreen() {
+    if (g_app.window == nullptr) {
+        return;
+    }
+
+    if (!g_app.fullscreen) {
+        g_app.windowedStyle = static_cast<DWORD>(GetWindowLongPtrW(g_app.window, GWL_STYLE));
+        g_app.windowedPlacement.length = sizeof(WINDOWPLACEMENT);
+        GetWindowPlacement(g_app.window, &g_app.windowedPlacement);
+
+        MONITORINFO monitorInfo{ sizeof(MONITORINFO) };
+        const HMONITOR monitor = MonitorFromWindow(g_app.window, MONITOR_DEFAULTTONEAREST);
+        if (!GetMonitorInfoW(monitor, &monitorInfo)) {
+            return;
+        }
+
+        SetWindowLongPtrW(
+            g_app.window,
+            GWL_STYLE,
+            static_cast<LONG_PTR>((g_app.windowedStyle & ~WS_OVERLAPPEDWINDOW) | WS_POPUP | WS_VISIBLE));
+        SetWindowPos(
+            g_app.window,
+            HWND_TOP,
+            monitorInfo.rcMonitor.left,
+            monitorInfo.rcMonitor.top,
+            monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left,
+            monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top,
+            SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        g_app.fullscreen = true;
+        SetWindowString(g_app.fullscreenButton, L"Звичайне вікно");
+    } else {
+        SetWindowLongPtrW(g_app.window, GWL_STYLE, static_cast<LONG_PTR>(g_app.windowedStyle));
+        SetWindowPlacement(g_app.window, &g_app.windowedPlacement);
+        SetWindowPos(
+            g_app.window,
+            nullptr,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        g_app.fullscreen = false;
+        SetWindowString(g_app.fullscreenButton, L"Повний екран");
+    }
+
+    LayoutUi();
+    RefreshPreviewsAfterLayout();
+}
+
 void CreateUi() {
     g_app.font = reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
@@ -941,6 +1077,7 @@ void CreateUi() {
     g_app.inputEdit = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL | ES_READONLY, WS_EX_CLIENTEDGE, 112, 14, 650, 24, IdInputEdit);
     CreateControl(L"BUTTON", L"Обрати...", BS_PUSHBUTTON, 0, 776, 12, 130, 28, IdBrowseInput);
     g_app.durationText = CreateControl(L"STATIC", L"Тривалість: файл не обрано", 0, 0, 112, 46, 650, 22, IdDurationText);
+    g_app.fullscreenButton = CreateControl(L"BUTTON", L"Повний екран", BS_PUSHBUTTON, 0, 776, 44, 130, 28, IdFullscreen);
 
     CreateControl(L"STATIC", L"Папка результату:", 0, 0, 16, 82, 120, 22, 0);
     g_app.outputFolderEdit = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL | ES_READONLY, WS_EX_CLIENTEDGE, 144, 80, 500, 24, IdOutputFolderEdit);
@@ -996,6 +1133,7 @@ void CreateUi() {
         220,
         IdLog);
 
+    LayoutUi();
     ResetTimeSliders();
 }
 
@@ -1005,6 +1143,37 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         g_app.window = window;
         CreateUi();
         return 0;
+    case WM_GETMINMAXINFO:
+        if (MINMAXINFO* minMax = reinterpret_cast<MINMAXINFO*>(lParam)) {
+            minMax->ptMinTrackSize.x = kMinWindowWidth;
+            minMax->ptMinTrackSize.y = kMinWindowHeight;
+        }
+        return 0;
+    case WM_SIZE:
+        if (wParam != SIZE_MINIMIZED) {
+            LayoutUi(LOWORD(lParam), HIWORD(lParam));
+            if (!g_app.isSizing) {
+                RefreshPreviewsAfterLayout();
+            }
+        }
+        return 0;
+    case WM_ENTERSIZEMOVE:
+        g_app.isSizing = true;
+        return 0;
+    case WM_EXITSIZEMOVE:
+        g_app.isSizing = false;
+        RefreshPreviewsAfterLayout();
+        return 0;
+    case WM_KEYDOWN:
+        if (wParam == VK_F11) {
+            ToggleFullscreen();
+            return 0;
+        }
+        if (wParam == VK_ESCAPE && g_app.fullscreen) {
+            ToggleFullscreen();
+            return 0;
+        }
+        break;
     case WM_COMMAND:
         if ((LOWORD(wParam) == IdStartEdit || LOWORD(wParam) == IdEndEdit) && HIWORD(wParam) == EN_KILLFOCUS) {
             SyncSlidersFromTimeFields();
@@ -1030,6 +1199,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         case IdClearSegments:
             g_app.segments.clear();
             RefreshSegmentsList();
+            return 0;
+        case IdFullscreen:
+            ToggleFullscreen();
             return 0;
         case IdRun:
             RunCut();
@@ -1081,7 +1253,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int commandShow) {
         0,
         windowClass.lpszClassName,
         L"Video Optimizer - вирізання сегментів",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        WS_OVERLAPPEDWINDOW,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
         kWindowWidth,
@@ -1101,6 +1273,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int commandShow) {
 
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (message.message == WM_KEYDOWN && message.wParam == VK_F11) {
+            ToggleFullscreen();
+            continue;
+        }
+        if (message.message == WM_KEYDOWN && message.wParam == VK_ESCAPE && g_app.fullscreen) {
+            ToggleFullscreen();
+            continue;
+        }
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
