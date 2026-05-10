@@ -40,7 +40,7 @@ constexpr int kLeftPaneWidth = 920;
 constexpr int kPreviewMargin = 16;
 constexpr int kPreviewMinWidth = 180;
 constexpr int kPreviewMinHeight = 112;
-constexpr int kPreviewTop = 170;
+constexpr int kPreviewTop = 16;
 constexpr int kPreviewResizeGripHeight = 12;
 
 enum ControlId {
