@@ -40,6 +40,7 @@ enum ControlId {
     IdDurationText,
     IdOutputFolderEdit,
     IdBrowseOutputFolder,
+    IdOpenOutputFolder,
     IdManualNameEdit,
     IdStartEdit,
     IdEndEdit,
@@ -532,6 +533,44 @@ bool PickOutputFolder() {
     return true;
 }
 
+void OpenOutputFolder() {
+    std::filesystem::path folder = g_app.outputFolder;
+
+    if (folder.empty() && !g_app.inputFile.empty()) {
+        folder = g_app.inputFile.parent_path();
+    }
+
+    if (folder.empty()) {
+        std::error_code ec;
+        folder = std::filesystem::current_path(ec);
+        if (ec) {
+            ShowError(L"Не вдалося визначити папку для відкриття.");
+            return;
+        }
+    }
+
+    std::error_code ec;
+    if (!std::filesystem::exists(folder, ec) || ec) {
+        ShowError(L"Папка результату не існує:\n" + folder.wstring());
+        return;
+    }
+
+    HINSTANCE result = ShellExecuteW(
+        g_app.window,
+        L"open",
+        folder.wstring().c_str(),
+        nullptr,
+        nullptr,
+        SW_SHOWNORMAL);
+
+    if (reinterpret_cast<INT_PTR>(result) <= 32) {
+        ShowError(L"Не вдалося відкрити папку:\n" + folder.wstring());
+        return;
+    }
+
+    AppendLogLine(L"Відкрито папку: " + folder.wstring());
+}
+
 void RefreshSegmentsList() {
     SendMessageW(g_app.segmentList, LB_RESETCONTENT, 0, 0);
     for (size_t index = 0; index < g_app.segments.size(); ++index) {
@@ -773,8 +812,9 @@ void CreateUi() {
     g_app.durationText = CreateControl(L"STATIC", L"Тривалість: файл не обрано", 0, 0, 112, 46, 650, 22, IdDurationText);
 
     CreateControl(L"STATIC", L"Папка результату:", 0, 0, 16, 82, 120, 22, 0);
-    g_app.outputFolderEdit = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL | ES_READONLY, WS_EX_CLIENTEDGE, 144, 80, 618, 24, IdOutputFolderEdit);
-    CreateControl(L"BUTTON", L"Обрати...", BS_PUSHBUTTON, 0, 776, 78, 130, 28, IdBrowseOutputFolder);
+    g_app.outputFolderEdit = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL | ES_READONLY, WS_EX_CLIENTEDGE, 144, 80, 500, 24, IdOutputFolderEdit);
+    CreateControl(L"BUTTON", L"Обрати...", BS_PUSHBUTTON, 0, 656, 78, 118, 28, IdBrowseOutputFolder);
+    CreateControl(L"BUTTON", L"Відкрити", BS_PUSHBUTTON, 0, 786, 78, 120, 28, IdOpenOutputFolder);
 
     CreateControl(L"STATIC", L"Назва файлу вручну:", 0, 0, 16, 120, 140, 22, 0);
     g_app.manualNameEdit = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, 160, 118, 360, 24, IdManualNameEdit);
@@ -842,6 +882,9 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
             return 0;
         case IdBrowseOutputFolder:
             PickOutputFolder();
+            return 0;
+        case IdOpenOutputFolder:
+            OpenOutputFolder();
             return 0;
         case IdAddSegment:
             AddSegmentFromInputs();
