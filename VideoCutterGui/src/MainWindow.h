@@ -47,6 +47,13 @@ private:
     void ClearIntervals();
     void RefreshIntervalList(int selectIndex = -1);
     int SelectedIntervalIndex() const;
+    void ResetIntervalWidgets();
+    void ConfigureIntervalWidgets();
+    void SyncTimeFieldsFromSliders(HWND changedSlider);
+    void SyncSlidersFromTimeFields(bool showErrors);
+    void AdjustIntervalSlider(HWND slider, int deltaSeconds);
+    int SliderPosition(HWND slider) const;
+    void SetSliderPosition(HWND slider, int value) const;
 
     void UpdateOutputPreview();
     void StartExport(bool dryRun);
@@ -72,6 +79,18 @@ private:
     HWND metadataEdit_ = nullptr;
     HWND startEdit_ = nullptr;
     HWND endEdit_ = nullptr;
+    HWND startSlider_ = nullptr;
+    HWND endSlider_ = nullptr;
+    HWND startSliderText_ = nullptr;
+    HWND endSliderText_ = nullptr;
+    HWND startMinus10Button_ = nullptr;
+    HWND startMinus1Button_ = nullptr;
+    HWND startPlus1Button_ = nullptr;
+    HWND startPlus10Button_ = nullptr;
+    HWND endMinus10Button_ = nullptr;
+    HWND endMinus1Button_ = nullptr;
+    HWND endPlus1Button_ = nullptr;
+    HWND endPlus10Button_ = nullptr;
     HWND addButton_ = nullptr;
     HWND intervalList_ = nullptr;
     HWND removeButton_ = nullptr;

@@ -12,6 +12,7 @@
 #include <Shellapi.h>
 
 #include <algorithm>
+#include <climits>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -37,6 +38,16 @@ enum ControlId {
     IdMetadataEdit,
     IdStartEdit,
     IdEndEdit,
+    IdStartSlider,
+    IdEndSlider,
+    IdStartMinus10,
+    IdStartMinus1,
+    IdStartPlus1,
+    IdStartPlus10,
+    IdEndMinus10,
+    IdEndMinus1,
+    IdEndPlus1,
+    IdEndPlus10,
     IdAddInterval,
     IdIntervalList,
     IdRemoveInterval,
@@ -238,6 +249,11 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_COMMAND:
+        if ((LOWORD(wParam) == IdStartEdit || LOWORD(wParam) == IdEndEdit) && HIWORD(wParam) == EN_KILLFOCUS) {
+            SyncSlidersFromTimeFields(false);
+            return 0;
+        }
+
         if (HIWORD(wParam) == EN_CHANGE
             && (LOWORD(wParam) == IdManualNameEdit || LOWORD(wParam) == IdOutputFolderEdit)) {
             UpdateOutputPreview();
@@ -266,6 +282,30 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         case IdMoveDown:
             MoveSelectedInterval(1);
             return 0;
+        case IdStartMinus10:
+            AdjustIntervalSlider(startSlider_, -10);
+            return 0;
+        case IdStartMinus1:
+            AdjustIntervalSlider(startSlider_, -1);
+            return 0;
+        case IdStartPlus1:
+            AdjustIntervalSlider(startSlider_, 1);
+            return 0;
+        case IdStartPlus10:
+            AdjustIntervalSlider(startSlider_, 10);
+            return 0;
+        case IdEndMinus10:
+            AdjustIntervalSlider(endSlider_, -10);
+            return 0;
+        case IdEndMinus1:
+            AdjustIntervalSlider(endSlider_, -1);
+            return 0;
+        case IdEndPlus1:
+            AdjustIntervalSlider(endSlider_, 1);
+            return 0;
+        case IdEndPlus10:
+            AdjustIntervalSlider(endSlider_, 10);
+            return 0;
         case IdExport:
             StartExport(false);
             return 0;
@@ -280,6 +320,13 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             return 0;
         default:
             break;
+        }
+        break;
+
+    case WM_HSCROLL:
+        if (reinterpret_cast<HWND>(lParam) == startSlider_ || reinterpret_cast<HWND>(lParam) == endSlider_) {
+            SyncTimeFieldsFromSliders(reinterpret_cast<HWND>(lParam));
+            return 0;
         }
         break;
 
@@ -357,15 +404,31 @@ void MainWindow::CreateControls() {
     addButton_ = CreateControl(L"BUTTON", L"Додати інтервал", BS_PUSHBUTTON, 0, 540, 119, 150, 30, IdAddInterval);
     CreateLabel(L"Formats: 90, 1:30, 01:30, 1:02:03, 00:01:00.500", 710, 126, 380, 22);
 
+    CreateLabel(L"Start slider:", 18, 166, 120, 22);
+    startSlider_ = CreateControl(TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 0, 150, 156, 500, 42, IdStartSlider);
+    startSliderText_ = CreateLabel(L"Start: --:--:--", 666, 166, 125, 22);
+    startMinus10Button_ = CreateControl(L"BUTTON", L"-10s", BS_PUSHBUTTON, 0, 800, 163, 44, 24, IdStartMinus10);
+    startMinus1Button_ = CreateControl(L"BUTTON", L"-1s", BS_PUSHBUTTON, 0, 850, 163, 40, 24, IdStartMinus1);
+    startPlus1Button_ = CreateControl(L"BUTTON", L"+1s", BS_PUSHBUTTON, 0, 896, 163, 40, 24, IdStartPlus1);
+    startPlus10Button_ = CreateControl(L"BUTTON", L"+10s", BS_PUSHBUTTON, 0, 942, 163, 48, 24, IdStartPlus10);
+
+    CreateLabel(L"End slider:", 18, 214, 120, 22);
+    endSlider_ = CreateControl(TRACKBAR_CLASSW, L"", TBS_AUTOTICKS, 0, 150, 204, 500, 42, IdEndSlider);
+    endSliderText_ = CreateLabel(L"End: --:--:--", 666, 214, 125, 22);
+    endMinus10Button_ = CreateControl(L"BUTTON", L"-10s", BS_PUSHBUTTON, 0, 800, 211, 44, 24, IdEndMinus10);
+    endMinus1Button_ = CreateControl(L"BUTTON", L"-1s", BS_PUSHBUTTON, 0, 850, 211, 40, 24, IdEndMinus1);
+    endPlus1Button_ = CreateControl(L"BUTTON", L"+1s", BS_PUSHBUTTON, 0, 896, 211, 40, 24, IdEndPlus1);
+    endPlus10Button_ = CreateControl(L"BUTTON", L"+10s", BS_PUSHBUTTON, 0, 942, 211, 48, 24, IdEndPlus10);
+
     intervalList_ = CreateControl(
         WC_LISTVIEWW,
         L"",
         LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
         WS_EX_CLIENTEDGE,
         18,
-        166,
+        264,
         800,
-        180,
+        160,
         IdIntervalList);
     ListView_SetExtendedListViewStyle(intervalList_, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
     AddListViewColumn(intervalList_, 0, 70, L"#");
@@ -373,45 +436,47 @@ void MainWindow::CreateControls() {
     AddListViewColumn(intervalList_, 2, 190, L"End");
     AddListViewColumn(intervalList_, 3, 190, L"Duration");
 
-    removeButton_ = CreateControl(L"BUTTON", L"Remove selected", BS_PUSHBUTTON, 0, 840, 166, 250, 30, IdRemoveInterval);
-    clearButton_ = CreateControl(L"BUTTON", L"Clear all", BS_PUSHBUTTON, 0, 840, 202, 250, 30, IdClearIntervals);
-    moveUpButton_ = CreateControl(L"BUTTON", L"Move up", BS_PUSHBUTTON, 0, 840, 238, 120, 30, IdMoveUp);
-    moveDownButton_ = CreateControl(L"BUTTON", L"Move down", BS_PUSHBUTTON, 0, 970, 238, 120, 30, IdMoveDown);
+    removeButton_ = CreateControl(L"BUTTON", L"Remove selected", BS_PUSHBUTTON, 0, 840, 264, 250, 30, IdRemoveInterval);
+    clearButton_ = CreateControl(L"BUTTON", L"Clear all", BS_PUSHBUTTON, 0, 840, 300, 250, 30, IdClearIntervals);
+    moveUpButton_ = CreateControl(L"BUTTON", L"Move up", BS_PUSHBUTTON, 0, 840, 336, 120, 30, IdMoveUp);
+    moveDownButton_ = CreateControl(L"BUTTON", L"Move down", BS_PUSHBUTTON, 0, 970, 336, 120, 30, IdMoveDown);
 
-    CreateLabel(L"Output folder:", 18, 384, 120, 22);
-    outputFolderEdit_ = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL | ES_READONLY, WS_EX_CLIENTEDGE, 150, 380, 760, 24, IdOutputFolderEdit);
-    browseOutputButton_ = CreateControl(L"BUTTON", L"Вибрати папку", BS_PUSHBUTTON, 0, 930, 377, 160, 30, IdBrowseOutputFolder);
+    CreateLabel(L"Output folder:", 18, 462, 120, 22);
+    outputFolderEdit_ = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL | ES_READONLY, WS_EX_CLIENTEDGE, 150, 458, 760, 24, IdOutputFolderEdit);
+    browseOutputButton_ = CreateControl(L"BUTTON", L"Вибрати папку", BS_PUSHBUTTON, 0, 930, 455, 160, 30, IdBrowseOutputFolder);
 
-    CreateLabel(L"Manual name:", 18, 426, 120, 22);
-    manualNameEdit_ = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, 150, 422, 300, 24, IdManualNameEdit);
+    CreateLabel(L"Manual name:", 18, 504, 120, 22);
+    manualNameEdit_ = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL, WS_EX_CLIENTEDGE, 150, 500, 300, 24, IdManualNameEdit);
     SetCueBanner(manualNameEdit_, L"optional-name.mp4");
-    CreateLabel(L"Empty: another folder keeps original name; same folder gets _cut timestamp.", 470, 426, 620, 22);
+    CreateLabel(L"Empty: another folder keeps original name; same folder gets _cut timestamp.", 470, 504, 620, 22);
 
-    CreateLabel(L"Output preview:", 18, 468, 120, 22);
-    outputPreviewEdit_ = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL | ES_READONLY, WS_EX_CLIENTEDGE, 150, 464, 940, 24, IdOutputPreviewEdit);
+    CreateLabel(L"Output preview:", 18, 546, 120, 22);
+    outputPreviewEdit_ = CreateControl(L"EDIT", L"", ES_AUTOHSCROLL | ES_READONLY, WS_EX_CLIENTEDGE, 150, 542, 940, 24, IdOutputPreviewEdit);
 
-    exportButton_ = CreateControl(L"BUTTON", L"Start / Export", BS_DEFPUSHBUTTON, 0, 150, 510, 150, 34, IdExport);
-    dryRunButton_ = CreateControl(L"BUTTON", L"Dry Run", BS_PUSHBUTTON, 0, 316, 510, 120, 34, IdDryRun);
-    cancelButton_ = CreateControl(L"BUTTON", L"Cancel", BS_PUSHBUTTON, 0, 452, 510, 120, 34, IdCancel);
-    openOutputButton_ = CreateControl(L"BUTTON", L"Open output folder", BS_PUSHBUTTON, 0, 588, 510, 180, 34, IdOpenOutput);
+    exportButton_ = CreateControl(L"BUTTON", L"Start / Export", BS_DEFPUSHBUTTON, 0, 150, 584, 150, 34, IdExport);
+    dryRunButton_ = CreateControl(L"BUTTON", L"Dry Run", BS_PUSHBUTTON, 0, 316, 584, 120, 34, IdDryRun);
+    cancelButton_ = CreateControl(L"BUTTON", L"Cancel", BS_PUSHBUTTON, 0, 452, 584, 120, 34, IdCancel);
+    openOutputButton_ = CreateControl(L"BUTTON", L"Open output folder", BS_PUSHBUTTON, 0, 588, 584, 180, 34, IdOpenOutput);
 
-    progressBar_ = CreateControl(PROGRESS_CLASSW, L"", 0, 0, 150, 560, 760, 22, IdProgress);
+    progressBar_ = CreateControl(PROGRESS_CLASSW, L"", 0, 0, 150, 636, 760, 22, IdProgress);
     SendMessageW(progressBar_, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
-    statusText_ = CreateLabel(L"Ready.", 930, 560, 160, 22);
+    statusText_ = CreateLabel(L"Ready.", 930, 636, 160, 22);
 
-    CreateLabel(L"Fast mode uses FFmpeg -c copy. MP4/H.264 cut points may align to keyframes; exact frame cuts need a future re-encode mode.", 18, 596, 1072, 22);
+    CreateLabel(L"Fast mode uses FFmpeg -c copy. MP4/H.264 cut points may align to keyframes; exact frame cuts need a future re-encode mode.", 18, 674, 1072, 22);
 
-    CreateLabel(L"Log:", 18, 626, 120, 22);
+    CreateLabel(L"Log:", 18, 704, 120, 22);
     logEdit_ = CreateControl(
         L"EDIT",
         L"",
         ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL,
         WS_EX_CLIENTEDGE,
         18,
-        650,
+        728,
         1072,
-        150,
+        74,
         IdLog);
+
+    ResetIntervalWidgets();
 }
 
 HWND MainWindow::CreateControl(const wchar_t* className,
@@ -448,6 +513,160 @@ void MainWindow::ApplyFont(HWND control) const {
     SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
 }
 
+int MainWindow::SliderPosition(HWND slider) const {
+    return static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0));
+}
+
+void MainWindow::SetSliderPosition(HWND slider, int value) const {
+    SendMessageW(slider, TBM_SETPOS, TRUE, value);
+}
+
+void MainWindow::ResetIntervalWidgets() {
+    if (startSlider_ == nullptr || endSlider_ == nullptr) {
+        return;
+    }
+
+    SendMessageW(startSlider_, TBM_SETRANGE, TRUE, MAKELPARAM(0, 1));
+    SendMessageW(endSlider_, TBM_SETRANGE, TRUE, MAKELPARAM(0, 1));
+    SetSliderPosition(startSlider_, 0);
+    SetSliderPosition(endSlider_, 1);
+    SetText(startSliderText_, L"Start: --:--:--");
+    SetText(endSliderText_, L"End: --:--:--");
+    EnableWindow(startSlider_, FALSE);
+    EnableWindow(endSlider_, FALSE);
+    EnableWindow(startMinus10Button_, FALSE);
+    EnableWindow(startMinus1Button_, FALSE);
+    EnableWindow(startPlus1Button_, FALSE);
+    EnableWindow(startPlus10Button_, FALSE);
+    EnableWindow(endMinus10Button_, FALSE);
+    EnableWindow(endMinus1Button_, FALSE);
+    EnableWindow(endPlus1Button_, FALSE);
+    EnableWindow(endPlus10Button_, FALSE);
+}
+
+void MainWindow::ConfigureIntervalWidgets() {
+    if (!state_.videoInfo.ok || state_.videoInfo.durationMilliseconds <= 0) {
+        ResetIntervalWidgets();
+        return;
+    }
+
+    const int durationSeconds = static_cast<int>(std::min<std::int64_t>(
+        std::max<std::int64_t>(1, (state_.videoInfo.durationMilliseconds + 999) / 1000),
+        INT_MAX - 1));
+
+    SendMessageW(startSlider_, TBM_SETRANGE, TRUE, MAKELPARAM(0, durationSeconds));
+    SendMessageW(endSlider_, TBM_SETRANGE, TRUE, MAKELPARAM(0, durationSeconds));
+    SendMessageW(startSlider_, TBM_SETPAGESIZE, 0, 10);
+    SendMessageW(endSlider_, TBM_SETPAGESIZE, 0, 10);
+    SendMessageW(startSlider_, TBM_SETTICFREQ, 60, 0);
+    SendMessageW(endSlider_, TBM_SETTICFREQ, 60, 0);
+    SetSliderPosition(startSlider_, 0);
+    SetSliderPosition(endSlider_, durationSeconds);
+    SyncTimeFieldsFromSliders(endSlider_);
+}
+
+void MainWindow::SyncTimeFieldsFromSliders(HWND changedSlider) {
+    if (!state_.videoInfo.ok || state_.videoInfo.durationMilliseconds <= 0) {
+        return;
+    }
+
+    const int durationSeconds = static_cast<int>(std::min<std::int64_t>(
+        std::max<std::int64_t>(1, (state_.videoInfo.durationMilliseconds + 999) / 1000),
+        INT_MAX - 1));
+    int start = SliderPosition(startSlider_);
+    int end = SliderPosition(endSlider_);
+
+    if (start >= end) {
+        if (changedSlider == startSlider_) {
+            start = std::min(start, std::max(0, durationSeconds - 1));
+            end = std::min(durationSeconds, start + 1);
+        } else {
+            end = std::max(end, 1);
+            start = std::max(0, end - 1);
+        }
+        SetSliderPosition(startSlider_, start);
+        SetSliderPosition(endSlider_, end);
+    }
+
+    const std::int64_t startMs = (start >= durationSeconds)
+        ? state_.videoInfo.durationMilliseconds
+        : static_cast<std::int64_t>(start) * 1000;
+    const std::int64_t endMs = (end >= durationSeconds)
+        ? state_.videoInfo.durationMilliseconds
+        : static_cast<std::int64_t>(end) * 1000;
+
+    const std::wstring startText = FormatTime(startMs);
+    const std::wstring endText = FormatTime(endMs);
+    SetText(startEdit_, startText);
+    SetText(endEdit_, endText);
+    SetText(startSliderText_, L"Start: " + startText);
+    SetText(endSliderText_, L"End: " + endText);
+}
+
+void MainWindow::SyncSlidersFromTimeFields(bool showErrors) {
+    SegmentInterval segment;
+    std::wstring error;
+    if (!ParseSegmentTimes(GetText(startEdit_), GetText(endEdit_), segment, error)) {
+        if (showErrors) {
+            ShowError(error);
+        }
+        return;
+    }
+
+    SetText(startEdit_, segment.startText);
+    SetText(endEdit_, segment.endText);
+
+    if (!state_.videoInfo.ok || state_.videoInfo.durationMilliseconds <= 0) {
+        return;
+    }
+
+    if (segment.endMilliseconds > state_.videoInfo.durationMilliseconds + 1) {
+        if (showErrors) {
+            ShowError(L"End time is greater than the video duration.");
+        }
+        return;
+    }
+
+    const int durationSeconds = static_cast<int>(std::min<std::int64_t>(
+        std::max<std::int64_t>(1, (state_.videoInfo.durationMilliseconds + 999) / 1000),
+        INT_MAX - 1));
+    int start = static_cast<int>(std::min<std::int64_t>(segment.startMilliseconds / 1000, durationSeconds));
+    int end = segment.endMilliseconds >= state_.videoInfo.durationMilliseconds
+        ? durationSeconds
+        : static_cast<int>(std::min<std::int64_t>((segment.endMilliseconds + 999) / 1000, durationSeconds));
+
+    if (start >= end) {
+        start = std::max(0, end - 1);
+    }
+
+    SetSliderPosition(startSlider_, start);
+    SetSliderPosition(endSlider_, end);
+    SetText(startSliderText_, L"Start: " + FormatTime(segment.startMilliseconds));
+    SetText(endSliderText_, L"End: " + FormatTime(segment.endMilliseconds));
+}
+
+void MainWindow::AdjustIntervalSlider(HWND slider, int deltaSeconds) {
+    if (!state_.videoInfo.ok || state_.videoInfo.durationMilliseconds <= 0 || slider == nullptr) {
+        return;
+    }
+
+    const int durationSeconds = static_cast<int>(std::min<std::int64_t>(
+        std::max<std::int64_t>(1, (state_.videoInfo.durationMilliseconds + 999) / 1000),
+        INT_MAX - 1));
+    int start = SliderPosition(startSlider_);
+    int end = SliderPosition(endSlider_);
+
+    if (slider == startSlider_) {
+        start = std::clamp(start + deltaSeconds, 0, std::max(0, end - 1));
+        SetSliderPosition(startSlider_, start);
+    } else if (slider == endSlider_) {
+        end = std::clamp(end + deltaSeconds, std::min(durationSeconds, start + 1), durationSeconds);
+        SetSliderPosition(endSlider_, end);
+    }
+
+    SyncTimeFieldsFromSliders(slider);
+}
+
 void MainWindow::PickInputVideo() {
     const std::wstring pathText = BrowseFile(window_);
     if (pathText.empty()) {
@@ -466,6 +685,7 @@ void MainWindow::PickInputVideo() {
     state_.lastOutputFile.clear();
     state_.segmentEditor.Clear();
     state_.videoInfo = VideoInfo{};
+    ResetIntervalWidgets();
 
     SetText(inputEdit_, state_.inputFile.wstring());
     SetText(outputFolderEdit_, state_.outputFolder.wstring());
@@ -520,9 +740,11 @@ void MainWindow::HandleProbeResult(int generation, std::unique_ptr<VideoInfo> in
         AppendLogLine(L"Duration: " + FormatTime(state_.videoInfo.durationMilliseconds));
         AppendLogLine(L"Video: " + state_.videoInfo.videoCodec + L", audio: " + state_.videoInfo.audioCodec);
         SetStatus(L"ready");
+        ConfigureIntervalWidgets();
     } else {
         AppendLogLine(L"Probe error: " + state_.videoInfo.error);
         SetStatus(L"probe failed");
+        ResetIntervalWidgets();
         ShowError(state_.videoInfo.error);
     }
 
@@ -539,6 +761,8 @@ void MainWindow::AddInterval() {
     if (state_.videoInfo.ok) {
         knownDuration = state_.videoInfo.durationMilliseconds;
     }
+
+    SyncSlidersFromTimeFields(false);
 
     std::wstring error;
     if (!state_.segmentEditor.Add(GetText(startEdit_), GetText(endEdit_), knownDuration, error)) {
@@ -778,6 +1002,7 @@ void MainWindow::UpdateControls() {
     const bool hasInput = !state_.inputFile.empty();
     const bool hasSegments = !state_.segmentEditor.Empty();
     const bool hasSelection = SelectedIntervalIndex() >= 0;
+    const bool hasDuration = state_.videoInfo.ok && state_.videoInfo.durationMilliseconds > 0;
     const bool canEdit = !state_.busy;
     const int selected = SelectedIntervalIndex();
 
@@ -786,6 +1011,16 @@ void MainWindow::UpdateControls() {
     EnableWindow(manualNameEdit_, canEdit && hasInput);
     EnableWindow(startEdit_, canEdit && hasInput);
     EnableWindow(endEdit_, canEdit && hasInput);
+    EnableWindow(startSlider_, canEdit && hasDuration);
+    EnableWindow(endSlider_, canEdit && hasDuration);
+    EnableWindow(startMinus10Button_, canEdit && hasDuration);
+    EnableWindow(startMinus1Button_, canEdit && hasDuration);
+    EnableWindow(startPlus1Button_, canEdit && hasDuration);
+    EnableWindow(startPlus10Button_, canEdit && hasDuration);
+    EnableWindow(endMinus10Button_, canEdit && hasDuration);
+    EnableWindow(endMinus1Button_, canEdit && hasDuration);
+    EnableWindow(endPlus1Button_, canEdit && hasDuration);
+    EnableWindow(endPlus10Button_, canEdit && hasDuration);
     EnableWindow(addButton_, canEdit && hasInput);
     EnableWindow(removeButton_, canEdit && hasSelection);
     EnableWindow(clearButton_, canEdit && hasSegments);
