@@ -11,6 +11,9 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\ConcatListWriter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\Config.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -23,6 +26,15 @@
     <ClCompile Include="src\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\Segment.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\SegmentParser.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\VideoCutter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="src\VideoOptimizer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -31,6 +43,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\ConcatListWriter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="src\Config.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -38,6 +53,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\FileScanner.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\Segment.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\SegmentParser.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\VideoCutter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="src\VideoOptimizer.h">

@@ -82,17 +82,25 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="src\ConcatListWriter.cpp" />
     <ClCompile Include="src\Config.cpp" />
     <ClCompile Include="src\FFmpegRunner.cpp" />
     <ClCompile Include="src\FileScanner.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\Segment.cpp" />
+    <ClCompile Include="src\SegmentParser.cpp" />
+    <ClCompile Include="src\VideoCutter.cpp" />
     <ClCompile Include="src\VideoOptimizer.cpp" />
     <ClCompile Include="src\VideoProbe.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\ConcatListWriter.h" />
     <ClInclude Include="src\Config.h" />
     <ClInclude Include="src\FFmpegRunner.h" />
     <ClInclude Include="src\FileScanner.h" />
+    <ClInclude Include="src\Segment.h" />
+    <ClInclude Include="src\SegmentParser.h" />
+    <ClInclude Include="src\VideoCutter.h" />
     <ClInclude Include="src\VideoOptimizer.h" />
     <ClInclude Include="src\VideoProbe.h" />
   </ItemGroup>

@@ -1,4 +1,5 @@
 #include "Config.h"
+#include "VideoCutter.h"
 #include "VideoOptimizer.h"
 
 #include <Windows.h>
@@ -16,14 +17,27 @@ int wmain(int argc, wchar_t* argv[]) {
 
     const video_optimizer::ParseResult parseResult = video_optimizer::ParseArguments(argc, argv);
     if (parseResult.helpRequested) {
-        video_optimizer::PrintHelp();
+        if (parseResult.cutHelpRequested) {
+            video_optimizer::PrintCutHelp();
+        } else {
+            video_optimizer::PrintHelp();
+        }
         return 0;
     }
 
     if (!parseResult.ok) {
         std::wcerr << L"Error: " << parseResult.error << L"\n\n";
-        video_optimizer::PrintHelp();
+        if (parseResult.mode == video_optimizer::AppMode::Cut) {
+            video_optimizer::PrintCutHelp();
+        } else {
+            video_optimizer::PrintHelp();
+        }
         return 1;
+    }
+
+    if (parseResult.mode == video_optimizer::AppMode::Cut) {
+        video_optimizer::VideoCutter cutter(parseResult.cutConfig);
+        return cutter.Run();
     }
 
     video_optimizer::VideoOptimizer optimizer(parseResult.config);

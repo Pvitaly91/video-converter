@@ -9,3 +9,4 @@ Release/
 *.VC.db
 *.VC.opendb
 _optimized_mp4/
+video_optimizer_temp_*/
